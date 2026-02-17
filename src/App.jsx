@@ -1319,7 +1319,7 @@ function App() {
         </nav>
         <a
           className="feature-link"
-          href="mailto:info@paulzuiderduin.com?subject=Field%20Hockey%20Feature%20Request"
+          href="https://mail.google.com/mail/?view=cm&fs=1&to=info@paulzuiderduin.com&su=Field%20Hockey%20Feature%20Request"
         >
           Request Feature
         </a>
