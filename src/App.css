@@ -64,6 +64,19 @@
   cursor: pointer;
 }
 
+.feature-link {
+  color: #daf5ef;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.95;
+}
+
+.feature-link:hover {
+  opacity: 1;
+}
+
 .content {
   padding: 20px;
 }

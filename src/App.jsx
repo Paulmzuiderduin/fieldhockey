@@ -6,6 +6,7 @@ const ALL_MODULES = ['Home', 'Matches', 'Roster', 'Event Tracker', 'Analytics', 
 
 const DEFAULT_SETTINGS = {
   quarterLength: 15,
+  showStatTooltips: true,
   visibleModules: {
     Home: true,
     Matches: true,
@@ -81,6 +82,8 @@ function loadLocalSettings() {
     const parsed = JSON.parse(raw);
     return {
       quarterLength: parsed.quarterLength || DEFAULT_SETTINGS.quarterLength,
+      showStatTooltips:
+        typeof parsed.showStatTooltips === 'boolean' ? parsed.showStatTooltips : DEFAULT_SETTINGS.showStatTooltips,
       visibleModules: {
         ...DEFAULT_SETTINGS.visibleModules,
         ...(parsed.visibleModules || {})
@@ -90,6 +93,29 @@ function loadLocalSettings() {
     return DEFAULT_SETTINGS;
   }
 }
+
+const STAT_TOOLTIPS = {
+  goals: 'Total goals scored.',
+  assists: 'Final pass that directly leads to a goal.',
+  shots: 'Total shot attempts.',
+  shots_on_target: 'Shots that would go in without a save/block.',
+  shot_accuracy: 'Shots on target divided by total shots.',
+  goal_conversion: 'Goals divided by total shots.',
+  pc_won: 'Penalty corners won by your team.',
+  pc_goal: 'Goals scored from penalty corners.',
+  pc_conversion: 'Penalty corner goals divided by penalty corners won.',
+  ps_conversion: 'Penalty stroke goals divided by penalty strokes won.',
+  circle_entries: 'Controlled entries into the attacking circle.',
+  saves: 'Saves made by your goalkeeper/team defense.',
+  interceptions: 'Passes or balls intercepted from opponents.',
+  tackles_won: 'Successful tackles resulting in possession.',
+  turnover_balance: 'Turnovers won minus turnovers lost.',
+  cards: 'Total discipline cards received (green/yellow/red).',
+  control_index: 'Team control proxy based on shot accuracy.',
+  finishing_index: 'Team finishing proxy based on goal conversion.',
+  transition_index: 'Transition impact from turnover balance.',
+  discipline_index: 'Penalty from cards, scaled to 0-100.'
+};
 
 function buildClockPresets(quarterLength) {
   const full = `${String(quarterLength).padStart(2, '0')}:00`;
@@ -157,6 +183,7 @@ function App() {
     []
   );
   const clockParts = useMemo(() => splitClock(clock), [clock]);
+  const statTooltip = (key) => (settings.showStatTooltips ? STAT_TOOLTIPS[key] || '' : '');
 
   useEffect(() => {
     localStorage.setItem('fieldhockey_settings', JSON.stringify(settings));
@@ -674,12 +701,12 @@ function App() {
             defensive actions, turnovers, and cards.
           </p>
           <div className="kpi-grid">
-            <article className="kpi-card"><span>Goals</span><strong>{kpis.goals}</strong></article>
-            <article className="kpi-card"><span>Shots On Target</span><strong>{kpis.shotsOnTarget}</strong></article>
-            <article className="kpi-card"><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
-            <article className="kpi-card"><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
-            <article className="kpi-card"><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
-            <article className="kpi-card"><span>Cards</span><strong>{kpis.greenCards + kpis.yellowCards + kpis.redCards}</strong></article>
+            <article className="kpi-card" title={statTooltip('goals')}><span>Goals</span><strong>{kpis.goals}</strong></article>
+            <article className="kpi-card" title={statTooltip('shots_on_target')}><span>Shots On Target</span><strong>{kpis.shotsOnTarget}</strong></article>
+            <article className="kpi-card" title={statTooltip('shot_accuracy')}><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
+            <article className="kpi-card" title={statTooltip('pc_conversion')}><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
+            <article className="kpi-card" title={statTooltip('turnover_balance')}><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
+            <article className="kpi-card" title={statTooltip('cards')}><span>Cards</span><strong>{kpis.greenCards + kpis.yellowCards + kpis.redCards}</strong></article>
           </div>
         </section>
 
@@ -1015,18 +1042,18 @@ function App() {
           </div>
 
           <div className="kpi-grid">
-            <article className="kpi-card"><span>Goals</span><strong>{kpis.goals}</strong></article>
-            <article className="kpi-card"><span>Assists</span><strong>{kpis.assists}</strong></article>
-            <article className="kpi-card"><span>Shots</span><strong>{kpis.shots}</strong></article>
-            <article className="kpi-card"><span>Shots On Target</span><strong>{kpis.shotsOnTarget}</strong></article>
-            <article className="kpi-card"><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
-            <article className="kpi-card"><span>Goal Conversion</span><strong>{kpis.goalConversion}</strong></article>
-            <article className="kpi-card"><span>PC Won</span><strong>{kpis.pcWon}</strong></article>
-            <article className="kpi-card"><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
-            <article className="kpi-card"><span>PS Conversion</span><strong>{kpis.psConversion}</strong></article>
-            <article className="kpi-card"><span>Circle Entries</span><strong>{kpis.circleEntries}</strong></article>
-            <article className="kpi-card"><span>Saves</span><strong>{kpis.saves}</strong></article>
-            <article className="kpi-card"><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
+            <article className="kpi-card" title={statTooltip('goals')}><span>Goals</span><strong>{kpis.goals}</strong></article>
+            <article className="kpi-card" title={statTooltip('assists')}><span>Assists</span><strong>{kpis.assists}</strong></article>
+            <article className="kpi-card" title={statTooltip('shots')}><span>Shots</span><strong>{kpis.shots}</strong></article>
+            <article className="kpi-card" title={statTooltip('shots_on_target')}><span>Shots On Target</span><strong>{kpis.shotsOnTarget}</strong></article>
+            <article className="kpi-card" title={statTooltip('shot_accuracy')}><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
+            <article className="kpi-card" title={statTooltip('goal_conversion')}><span>Goal Conversion</span><strong>{kpis.goalConversion}</strong></article>
+            <article className="kpi-card" title={statTooltip('pc_won')}><span>PC Won</span><strong>{kpis.pcWon}</strong></article>
+            <article className="kpi-card" title={statTooltip('pc_conversion')}><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
+            <article className="kpi-card" title={statTooltip('ps_conversion')}><span>PS Conversion</span><strong>{kpis.psConversion}</strong></article>
+            <article className="kpi-card" title={statTooltip('circle_entries')}><span>Circle Entries</span><strong>{kpis.circleEntries}</strong></article>
+            <article className="kpi-card" title={statTooltip('saves')}><span>Saves</span><strong>{kpis.saves}</strong></article>
+            <article className="kpi-card" title={statTooltip('turnover_balance')}><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
           </div>
         </section>
 
@@ -1094,10 +1121,10 @@ function App() {
           <article>
             <h3>Discipline & Control Index</h3>
             <div className="kpi-grid compact">
-              <article className="kpi-card"><span>Control (SOT%)</span><strong>{kpis.shotAccuracyNum}</strong></article>
-              <article className="kpi-card"><span>Finishing (Goal%)</span><strong>{kpis.goalConversionNum}</strong></article>
-              <article className="kpi-card"><span>Transition</span><strong>{kpis.turnoverBalance}</strong></article>
-              <article className="kpi-card"><span>Discipline</span><strong>{Math.max(0, 100 - (kpis.greenCards + kpis.yellowCards * 2 + kpis.redCards * 4) * 8)}</strong></article>
+              <article className="kpi-card" title={statTooltip('control_index')}><span>Control (SOT%)</span><strong>{kpis.shotAccuracyNum}</strong></article>
+              <article className="kpi-card" title={statTooltip('finishing_index')}><span>Finishing (Goal%)</span><strong>{kpis.goalConversionNum}</strong></article>
+              <article className="kpi-card" title={statTooltip('transition_index')}><span>Transition</span><strong>{kpis.turnoverBalance}</strong></article>
+              <article className="kpi-card" title={statTooltip('discipline_index')}><span>Discipline</span><strong>{Math.max(0, 100 - (kpis.greenCards + kpis.yellowCards * 2 + kpis.redCards * 4) * 8)}</strong></article>
             </div>
           </article>
         </section>
@@ -1174,6 +1201,16 @@ function App() {
                 <option value={15}>15</option>
               </select>
             </label>
+            <label className="toggle-item">
+              <input
+                type="checkbox"
+                checked={settings.showStatTooltips}
+                onChange={(event) =>
+                  setSettings((prev) => ({ ...prev, showStatTooltips: event.target.checked }))
+                }
+              />
+              <span>Show statistic tooltips</span>
+            </label>
 
             <button
               type="button"
@@ -1247,6 +1284,12 @@ function App() {
             </button>
           ))}
         </nav>
+        <a
+          className="feature-link"
+          href="mailto:info@paulzuiderduin.com?subject=Field%20Hockey%20Feature%20Request"
+        >
+          Request Feature
+        </a>
         <button className="signout" onClick={signOut}>Sign out</button>
       </aside>
 
