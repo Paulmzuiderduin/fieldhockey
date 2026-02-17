@@ -184,6 +184,54 @@
   color: #4e6672;
 }
 
+.stat-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: #d7e8ef;
+  color: #31515f;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.stat-tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  min-width: 190px;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #163445;
+  color: #f4fbff;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 16px rgba(14, 66, 78, 0.24);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.stat-label:hover .stat-tooltip,
+.stat-label:focus-within .stat-tooltip,
+.stat-label:focus .stat-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .kpi-card strong {
   display: block;
   margin-top: 6px;

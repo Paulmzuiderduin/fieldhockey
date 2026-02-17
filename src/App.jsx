@@ -117,6 +117,21 @@ const STAT_TOOLTIPS = {
   discipline_index: 'Penalty from cards, scaled to 0-100.'
 };
 
+const StatLabel = ({ label, tooltip, enabled }) => {
+  if (!enabled || !tooltip) return <span>{label}</span>;
+  return (
+    <span className="stat-label" tabIndex={0}>
+      {label}
+      <span className="stat-info" aria-hidden="true">
+        i
+      </span>
+      <span role="tooltip" className="stat-tooltip">
+        {tooltip}
+      </span>
+    </span>
+  );
+};
+
 function buildClockPresets(quarterLength) {
   const full = `${String(quarterLength).padStart(2, '0')}:00`;
   const mid = `${String(Math.max(1, Math.floor(quarterLength / 2))).padStart(2, '0')}:00`;
@@ -701,12 +716,30 @@ function App() {
             defensive actions, turnovers, and cards.
           </p>
           <div className="kpi-grid">
-            <article className="kpi-card" title={statTooltip('goals')}><span>Goals</span><strong>{kpis.goals}</strong></article>
-            <article className="kpi-card" title={statTooltip('shots_on_target')}><span>Shots On Target</span><strong>{kpis.shotsOnTarget}</strong></article>
-            <article className="kpi-card" title={statTooltip('shot_accuracy')}><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
-            <article className="kpi-card" title={statTooltip('pc_conversion')}><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
-            <article className="kpi-card" title={statTooltip('turnover_balance')}><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
-            <article className="kpi-card" title={statTooltip('cards')}><span>Cards</span><strong>{kpis.greenCards + kpis.yellowCards + kpis.redCards}</strong></article>
+            <article className="kpi-card">
+              <StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} />
+              <strong>{kpis.goals}</strong>
+            </article>
+            <article className="kpi-card">
+              <StatLabel label="Shots On Target" tooltip={statTooltip('shots_on_target')} enabled={settings.showStatTooltips} />
+              <strong>{kpis.shotsOnTarget}</strong>
+            </article>
+            <article className="kpi-card">
+              <StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} />
+              <strong>{kpis.shotAccuracy}</strong>
+            </article>
+            <article className="kpi-card">
+              <StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} />
+              <strong>{kpis.pcConversion}</strong>
+            </article>
+            <article className="kpi-card">
+              <StatLabel label="Turnover Balance" tooltip={statTooltip('turnover_balance')} enabled={settings.showStatTooltips} />
+              <strong>{kpis.turnoverBalance}</strong>
+            </article>
+            <article className="kpi-card">
+              <StatLabel label="Cards" tooltip={statTooltip('cards')} enabled={settings.showStatTooltips} />
+              <strong>{kpis.greenCards + kpis.yellowCards + kpis.redCards}</strong>
+            </article>
           </div>
         </section>
 
@@ -1042,18 +1075,18 @@ function App() {
           </div>
 
           <div className="kpi-grid">
-            <article className="kpi-card" title={statTooltip('goals')}><span>Goals</span><strong>{kpis.goals}</strong></article>
-            <article className="kpi-card" title={statTooltip('assists')}><span>Assists</span><strong>{kpis.assists}</strong></article>
-            <article className="kpi-card" title={statTooltip('shots')}><span>Shots</span><strong>{kpis.shots}</strong></article>
-            <article className="kpi-card" title={statTooltip('shots_on_target')}><span>Shots On Target</span><strong>{kpis.shotsOnTarget}</strong></article>
-            <article className="kpi-card" title={statTooltip('shot_accuracy')}><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
-            <article className="kpi-card" title={statTooltip('goal_conversion')}><span>Goal Conversion</span><strong>{kpis.goalConversion}</strong></article>
-            <article className="kpi-card" title={statTooltip('pc_won')}><span>PC Won</span><strong>{kpis.pcWon}</strong></article>
-            <article className="kpi-card" title={statTooltip('pc_conversion')}><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
-            <article className="kpi-card" title={statTooltip('ps_conversion')}><span>PS Conversion</span><strong>{kpis.psConversion}</strong></article>
-            <article className="kpi-card" title={statTooltip('circle_entries')}><span>Circle Entries</span><strong>{kpis.circleEntries}</strong></article>
-            <article className="kpi-card" title={statTooltip('saves')}><span>Saves</span><strong>{kpis.saves}</strong></article>
-            <article className="kpi-card" title={statTooltip('turnover_balance')}><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
+            <article className="kpi-card"><StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} /><strong>{kpis.goals}</strong></article>
+            <article className="kpi-card"><StatLabel label="Assists" tooltip={statTooltip('assists')} enabled={settings.showStatTooltips} /><strong>{kpis.assists}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shots" tooltip={statTooltip('shots')} enabled={settings.showStatTooltips} /><strong>{kpis.shots}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shots On Target" tooltip={statTooltip('shots_on_target')} enabled={settings.showStatTooltips} /><strong>{kpis.shotsOnTarget}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} /><strong>{kpis.shotAccuracy}</strong></article>
+            <article className="kpi-card"><StatLabel label="Goal Conversion" tooltip={statTooltip('goal_conversion')} enabled={settings.showStatTooltips} /><strong>{kpis.goalConversion}</strong></article>
+            <article className="kpi-card"><StatLabel label="PC Won" tooltip={statTooltip('pc_won')} enabled={settings.showStatTooltips} /><strong>{kpis.pcWon}</strong></article>
+            <article className="kpi-card"><StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} /><strong>{kpis.pcConversion}</strong></article>
+            <article className="kpi-card"><StatLabel label="PS Conversion" tooltip={statTooltip('ps_conversion')} enabled={settings.showStatTooltips} /><strong>{kpis.psConversion}</strong></article>
+            <article className="kpi-card"><StatLabel label="Circle Entries" tooltip={statTooltip('circle_entries')} enabled={settings.showStatTooltips} /><strong>{kpis.circleEntries}</strong></article>
+            <article className="kpi-card"><StatLabel label="Saves" tooltip={statTooltip('saves')} enabled={settings.showStatTooltips} /><strong>{kpis.saves}</strong></article>
+            <article className="kpi-card"><StatLabel label="Turnover Balance" tooltip={statTooltip('turnover_balance')} enabled={settings.showStatTooltips} /><strong>{kpis.turnoverBalance}</strong></article>
           </div>
         </section>
 
@@ -1121,10 +1154,10 @@ function App() {
           <article>
             <h3>Discipline & Control Index</h3>
             <div className="kpi-grid compact">
-              <article className="kpi-card" title={statTooltip('control_index')}><span>Control (SOT%)</span><strong>{kpis.shotAccuracyNum}</strong></article>
-              <article className="kpi-card" title={statTooltip('finishing_index')}><span>Finishing (Goal%)</span><strong>{kpis.goalConversionNum}</strong></article>
-              <article className="kpi-card" title={statTooltip('transition_index')}><span>Transition</span><strong>{kpis.turnoverBalance}</strong></article>
-              <article className="kpi-card" title={statTooltip('discipline_index')}><span>Discipline</span><strong>{Math.max(0, 100 - (kpis.greenCards + kpis.yellowCards * 2 + kpis.redCards * 4) * 8)}</strong></article>
+              <article className="kpi-card"><StatLabel label="Control (SOT%)" tooltip={statTooltip('control_index')} enabled={settings.showStatTooltips} /><strong>{kpis.shotAccuracyNum}</strong></article>
+              <article className="kpi-card"><StatLabel label="Finishing (Goal%)" tooltip={statTooltip('finishing_index')} enabled={settings.showStatTooltips} /><strong>{kpis.goalConversionNum}</strong></article>
+              <article className="kpi-card"><StatLabel label="Transition" tooltip={statTooltip('transition_index')} enabled={settings.showStatTooltips} /><strong>{kpis.turnoverBalance}</strong></article>
+              <article className="kpi-card"><StatLabel label="Discipline" tooltip={statTooltip('discipline_index')} enabled={settings.showStatTooltips} /><strong>{Math.max(0, 100 - (kpis.greenCards + kpis.yellowCards * 2 + kpis.redCards * 4) * 8)}</strong></article>
             </div>
           </article>
         </section>
