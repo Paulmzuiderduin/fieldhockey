@@ -2,7 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import './App.css';
 import { supabase } from './lib/supabase';
 
-const MODULES = ['Home', 'Matches', 'Roster', 'Event Tracker', 'Analytics'];
+const ALL_MODULES = ['Home', 'Matches', 'Roster', 'Event Tracker', 'Analytics', 'Settings'];
+
+const DEFAULT_SETTINGS = {
+  quarterLength: 15,
+  visibleModules: {
+    Home: true,
+    Matches: true,
+    Roster: true,
+    'Event Tracker': true,
+    Analytics: true,
+    Settings: true
+  }
+};
 
 const ACTION_GROUPS = [
   {
@@ -46,9 +58,13 @@ function toCountMap(events) {
   }, {});
 }
 
+function toPercentNumber(top, bottom) {
+  if (!bottom) return 0;
+  return Math.round((top / bottom) * 100);
+}
+
 function toPercent(top, bottom) {
-  if (!bottom) return '0%';
-  return `${Math.round((top / bottom) * 100)}%`;
+  return `${toPercentNumber(top, bottom)}%`;
 }
 
 function getTimeGreeting() {
@@ -58,12 +74,45 @@ function getTimeGreeting() {
   return 'Good evening';
 }
 
+function loadLocalSettings() {
+  try {
+    const raw = localStorage.getItem('fieldhockey_settings');
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw);
+    return {
+      quarterLength: parsed.quarterLength || DEFAULT_SETTINGS.quarterLength,
+      visibleModules: {
+        ...DEFAULT_SETTINGS.visibleModules,
+        ...(parsed.visibleModules || {})
+      }
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function buildClockPresets(quarterLength) {
+  const full = `${String(quarterLength).padStart(2, '0')}:00`;
+  const mid = `${String(Math.max(1, Math.floor(quarterLength / 2))).padStart(2, '0')}:00`;
+  return [full, '10:00', mid, '05:00', '02:00', '01:00', '00:30', '00:00'].filter(
+    (value, index, array) => array.indexOf(value) === index
+  );
+}
+
+function splitClock(value) {
+  const [rawMinutes, rawSeconds] = String(value || '').split(':');
+  const minutes = /^\d{1,2}$/.test(rawMinutes || '') ? rawMinutes.padStart(2, '0') : '00';
+  const seconds = /^\d{1,2}$/.test(rawSeconds || '') ? rawSeconds.padStart(2, '0') : '00';
+  return { minutes, seconds };
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
   const [email, setEmail] = useState('');
 
+  const [settings, setSettings] = useState(loadLocalSettings);
   const [activeModule, setActiveModule] = useState('Home');
   const [status, setStatus] = useState('');
 
@@ -72,7 +121,6 @@ function App() {
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
   const [events, setEvents] = useState([]);
-
   const [loadingData, setLoadingData] = useState(false);
 
   const [selectedSeasonId, setSelectedSeasonId] = useState('');
@@ -85,12 +133,49 @@ function App() {
   const [matchForm, setMatchForm] = useState(EMPTY_MATCH_FORM);
 
   const [selectedPlayerId, setSelectedPlayerId] = useState('');
+  const [editingPlayerId, setEditingPlayerId] = useState('');
+  const [editingPlayerForm, setEditingPlayerForm] = useState(EMPTY_PLAYER_FORM);
+  const [reportPlayerId, setReportPlayerId] = useState('');
   const [period, setPeriod] = useState(1);
-  const [clock, setClock] = useState('15:00');
+  const [clock, setClock] = useState(`${String(DEFAULT_SETTINGS.quarterLength).padStart(2, '0')}:00`);
+
+  const visibleModules = useMemo(
+    () => ALL_MODULES.filter((moduleName) => settings.visibleModules[moduleName] !== false),
+    [settings.visibleModules]
+  );
+
+  const clockPresets = useMemo(() => buildClockPresets(settings.quarterLength), [settings.quarterLength]);
+  const minuteOptions = useMemo(
+    () =>
+      Array.from({ length: settings.quarterLength + 1 }, (_, index) =>
+        String(settings.quarterLength - index).padStart(2, '0')
+      ),
+    [settings.quarterLength]
+  );
+  const secondOptions = useMemo(
+    () => Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0')),
+    []
+  );
+  const clockParts = useMemo(() => splitClock(clock), [clock]);
+
+  useEffect(() => {
+    localStorage.setItem('fieldhockey_settings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    if (!visibleModules.includes(activeModule)) {
+      setActiveModule(visibleModules[0] || 'Home');
+    }
+  }, [visibleModules, activeModule]);
+
+  useEffect(() => {
+    if (!clock || Number(clock.split(':')[0]) > settings.quarterLength) {
+      setClock(`${String(settings.quarterLength).padStart(2, '0')}:00`);
+    }
+  }, [settings.quarterLength]);
 
   useEffect(() => {
     let mounted = true;
-
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setSession(data.session ?? null);
@@ -143,6 +228,21 @@ function App() {
     }
   }, [matches, selectedMatchId]);
 
+  useEffect(() => {
+    if (!selectedMatchId && matches.length) {
+      setSelectedMatchId(matches[0].id);
+    }
+  }, [matches, selectedMatchId]);
+
+  useEffect(() => {
+    if (reportPlayerId && !players.find((player) => player.id === reportPlayerId)) {
+      setReportPlayerId('');
+    }
+    if (!reportPlayerId && players[0]?.id) {
+      setReportPlayerId(players[0].id);
+    }
+  }, [players, reportPlayerId]);
+
   const filteredEvents = useMemo(() => {
     if (!selectedMatchId) return events;
     return events.filter((event) => event.match_id === selectedMatchId);
@@ -168,7 +268,9 @@ function App() {
       shots,
       shotsOnTarget,
       shotAccuracy: toPercent(shotsOnTarget, shots),
+      shotAccuracyNum: toPercentNumber(shotsOnTarget, shots),
       goalConversion: toPercent(goals, shots),
+      goalConversionNum: toPercentNumber(goals, shots),
       pcWon,
       pcGoal,
       pcConversion: toPercent(pcGoal, pcWon),
@@ -213,28 +315,92 @@ function App() {
       .slice(0, 8);
   }, [filteredEvents, players]);
 
+  const matchTrends = useMemo(() => {
+    return matches
+      .map((match) => {
+        const matchEvents = events.filter((event) => event.match_id === match.id);
+        const counts = toCountMap(matchEvents);
+        const shots = counts.shot || 0;
+        const onTarget = counts.shot_on_target || 0;
+        const goals = counts.goal || 0;
+        const pcWon = counts.pc_won || 0;
+        const pcGoal = counts.pc_goal || 0;
+        const cards = (counts.card_green || 0) + (counts.card_yellow || 0) + (counts.card_red || 0);
+        return {
+          matchId: match.id,
+          opponent: match.opponent,
+          date: match.match_date,
+          goals,
+          shots,
+          onTarget,
+          shotAccuracyNum: toPercentNumber(onTarget, shots),
+          pcWon,
+          pcGoal,
+          pcConversionNum: toPercentNumber(pcGoal, pcWon),
+          turnovers: (counts.turnover_won || 0) - (counts.turnover_lost || 0),
+          circleEntries: counts.circle_entry || 0,
+          cards
+        };
+      })
+      .sort((a, b) => {
+        if (!a.date && !b.date) return 0;
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date.localeCompare(b.date);
+      });
+  }, [matches, events]);
+
+  const trendMax = useMemo(() => {
+    const maxShots = Math.max(1, ...matchTrends.map((item) => item.shots));
+    const maxGoals = Math.max(1, ...matchTrends.map((item) => item.goals));
+    const maxEntries = Math.max(1, ...matchTrends.map((item) => item.circleEntries));
+    return { maxShots, maxGoals, maxEntries };
+  }, [matchTrends]);
+
+  const playerReport = useMemo(() => {
+    if (!reportPlayerId) return null;
+    const player = players.find((item) => item.id === reportPlayerId);
+    if (!player) return null;
+    const playerEvents = filteredEvents.filter((event) => event.player_id === reportPlayerId);
+    const counts = toCountMap(playerEvents);
+    const goals = counts.goal || 0;
+    const assists = counts.assist || 0;
+    const shots = counts.shot || 0;
+    const onTarget = counts.shot_on_target || 0;
+    const pcGoals = counts.pc_goal || 0;
+    const discipline = (counts.card_green || 0) + (counts.card_yellow || 0) * 2 + (counts.card_red || 0) * 4;
+
+    return {
+      player,
+      events: playerEvents.length,
+      goals,
+      assists,
+      shots,
+      onTarget,
+      shotAccuracy: toPercent(onTarget, shots),
+      contributions: goals + assists,
+      circleEntries: counts.circle_entry || 0,
+      tackles: counts.tackle_won || 0,
+      interceptions: counts.interception || 0,
+      pcGoals,
+      discipline
+    };
+  }, [reportPlayerId, players, filteredEvents]);
+
   async function loadSeasons(userId) {
     setLoadingData(true);
     setStatus('Loading seasons...');
-
-    const { data, error } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-
+    const { data, error } = await supabase.from('seasons').select('*').eq('user_id', userId).order('created_at', { ascending: false });
     if (error) {
       setStatus(`Failed to load seasons: ${error.message}`);
       setLoadingData(false);
       return;
     }
-
     setSeasons(data || []);
     if (!selectedSeasonId && data?.length) setSelectedSeasonId(data[0].id);
     if (selectedSeasonId && !(data || []).find((season) => season.id === selectedSeasonId)) {
       setSelectedSeasonId(data?.[0]?.id || '');
     }
-
     setStatus('');
     setLoadingData(false);
   }
@@ -316,9 +482,7 @@ function App() {
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: window.location.origin
-      }
+      options: { emailRedirectTo: window.location.origin }
     });
 
     setAuthBusy(false);
@@ -341,17 +505,11 @@ function App() {
   async function createSeason(event) {
     event.preventDefault();
     if (!seasonForm.name.trim() || !session?.user?.id) return;
-
-    const { error } = await supabase.from('seasons').insert({
-      name: seasonForm.name.trim(),
-      user_id: session.user.id
-    });
-
+    const { error } = await supabase.from('seasons').insert({ name: seasonForm.name.trim(), user_id: session.user.id });
     if (error) {
       setStatus(`Failed to create season: ${error.message}`);
       return;
     }
-
     setSeasonForm(EMPTY_FORM);
     await loadSeasons(session.user.id);
   }
@@ -359,18 +517,13 @@ function App() {
   async function createTeam(event) {
     event.preventDefault();
     if (!teamForm.name.trim() || !session?.user?.id || !selectedSeasonId) return;
-
-    const { error } = await supabase.from('teams').insert({
-      name: teamForm.name.trim(),
-      season_id: selectedSeasonId,
-      user_id: session.user.id
-    });
-
+    const { error } = await supabase
+      .from('teams')
+      .insert({ name: teamForm.name.trim(), season_id: selectedSeasonId, user_id: session.user.id });
     if (error) {
       setStatus(`Failed to create team: ${error.message}`);
       return;
     }
-
     setTeamForm(EMPTY_FORM);
     await loadTeams(session.user.id, selectedSeasonId);
   }
@@ -378,7 +531,6 @@ function App() {
   async function createPlayer(event) {
     event.preventDefault();
     if (!playerForm.name.trim() || !session?.user?.id || !selectedTeamId) return;
-
     const payload = {
       user_id: session.user.id,
       team_id: selectedTeamId,
@@ -386,36 +538,79 @@ function App() {
       number: playerForm.number ? Number(playerForm.number) : null,
       position: playerForm.position.trim() || null
     };
-
     const { error } = await supabase.from('players').insert(payload);
-
     if (error) {
       setStatus(`Failed to create player: ${error.message}`);
       return;
     }
-
     setPlayerForm(EMPTY_PLAYER_FORM);
+    await loadTeamResources(session.user.id, selectedTeamId);
+  }
+
+  function startEditPlayer(player) {
+    setEditingPlayerId(player.id);
+    setEditingPlayerForm({
+      name: player.name || '',
+      number: player.number?.toString() || '',
+      position: player.position || ''
+    });
+  }
+
+  function cancelEditPlayer() {
+    setEditingPlayerId('');
+    setEditingPlayerForm(EMPTY_PLAYER_FORM);
+  }
+
+  async function savePlayer(playerId) {
+    if (!session?.user?.id || !selectedTeamId) return;
+    if (!editingPlayerForm.name.trim()) {
+      setStatus('Player name is required.');
+      return;
+    }
+
+    const payload = {
+      name: editingPlayerForm.name.trim(),
+      number: editingPlayerForm.number ? Number(editingPlayerForm.number) : null,
+      position: editingPlayerForm.position.trim() || null
+    };
+
+    const { error } = await supabase.from('players').update(payload).eq('id', playerId).eq('user_id', session.user.id);
+    if (error) {
+      setStatus(`Failed to update player: ${error.message}`);
+      return;
+    }
+
+    cancelEditPlayer();
+    await loadTeamResources(session.user.id, selectedTeamId);
+  }
+
+  async function deletePlayer(playerId) {
+    if (!session?.user?.id || !selectedTeamId) return;
+    const { error } = await supabase.from('players').delete().eq('id', playerId).eq('user_id', session.user.id);
+    if (error) {
+      setStatus(`Failed to delete player: ${error.message}`);
+      return;
+    }
+    if (selectedPlayerId === playerId) setSelectedPlayerId('');
+    if (reportPlayerId === playerId) setReportPlayerId('');
+    if (editingPlayerId === playerId) cancelEditPlayer();
     await loadTeamResources(session.user.id, selectedTeamId);
   }
 
   async function createMatch(event) {
     event.preventDefault();
     if (!matchForm.opponent.trim() || !session?.user?.id || !selectedTeamId) return;
-
     const payload = {
       user_id: session.user.id,
       team_id: selectedTeamId,
       opponent: matchForm.opponent.trim(),
       match_date: matchForm.match_date || null
     };
-
     const { error } = await supabase.from('matches').insert(payload);
-
     if (error) {
       setStatus(`Failed to create match: ${error.message}`);
       return;
     }
-
     setMatchForm(EMPTY_MATCH_FORM);
     await loadTeamResources(session.user.id, selectedTeamId);
   }
@@ -450,7 +645,6 @@ function App() {
     };
 
     const { error } = await supabase.from('events').insert(payload);
-
     if (error) {
       setStatus(`Failed to add event: ${error.message}`);
       return;
@@ -459,40 +653,33 @@ function App() {
     await loadTeamResources(session.user.id, selectedTeamId);
   }
 
+  function toggleModule(moduleName) {
+    if (moduleName === 'Home') return;
+    setSettings((prev) => {
+      const visibleModules = {
+        ...prev.visibleModules,
+        [moduleName]: !prev.visibleModules[moduleName]
+      };
+      return { ...prev, visibleModules };
+    });
+  }
+
   function renderHome() {
     return (
       <>
         <section className="panel">
           <h2>Field Hockey Hub</h2>
           <p className="muted">
-            Track the most-used team KPIs in one flow: shots, shots on target, goals, penalty corners, cards, circle
-            entries, turnovers, and defensive actions.
+            Track widely used match KPIs in one flow: shots, shots on target, goals, penalty corners, circle entries,
+            defensive actions, turnovers, and cards.
           </p>
           <div className="kpi-grid">
-            <article className="kpi-card">
-              <span>Goals</span>
-              <strong>{kpis.goals}</strong>
-            </article>
-            <article className="kpi-card">
-              <span>Shots On Target</span>
-              <strong>{kpis.shotsOnTarget}</strong>
-            </article>
-            <article className="kpi-card">
-              <span>Shot Accuracy</span>
-              <strong>{kpis.shotAccuracy}</strong>
-            </article>
-            <article className="kpi-card">
-              <span>PC Conversion</span>
-              <strong>{kpis.pcConversion}</strong>
-            </article>
-            <article className="kpi-card">
-              <span>Turnover Balance</span>
-              <strong>{kpis.turnoverBalance}</strong>
-            </article>
-            <article className="kpi-card">
-              <span>Cards</span>
-              <strong>{kpis.greenCards + kpis.yellowCards + kpis.redCards}</strong>
-            </article>
+            <article className="kpi-card"><span>Goals</span><strong>{kpis.goals}</strong></article>
+            <article className="kpi-card"><span>Shots On Target</span><strong>{kpis.shotsOnTarget}</strong></article>
+            <article className="kpi-card"><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
+            <article className="kpi-card"><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
+            <article className="kpi-card"><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
+            <article className="kpi-card"><span>Cards</span><strong>{kpis.greenCards + kpis.yellowCards + kpis.redCards}</strong></article>
           </div>
         </section>
 
@@ -501,10 +688,10 @@ function App() {
             <h3>Getting Started</h3>
             <ol>
               <li>Create a season and team in the top bar.</li>
-              <li>Add players in the Roster module.</li>
-              <li>Create a match in Matches.</li>
-              <li>Log events in Event Tracker.</li>
-              <li>Use Analytics for conversion and player output.</li>
+              <li>Add players in Roster.</li>
+              <li>Create a match in Matches and select it.</li>
+              <li>Log actions from Event Tracker.</li>
+              <li>Review trends in Analytics.</li>
             </ol>
           </article>
           <article>
@@ -614,16 +801,70 @@ function App() {
                 <th>#</th>
                 <th>Name</th>
                 <th>Position</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {players.map((player) => (
-                <tr key={player.id}>
-                  <td>{player.number ?? '-'}</td>
-                  <td>{player.name}</td>
-                  <td>{player.position || '-'}</td>
-                </tr>
-              ))}
+              {players.map((player) => {
+                const isEditing = editingPlayerId === player.id;
+                return (
+                  <tr key={player.id}>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editingPlayerForm.number}
+                          onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, number: event.target.value }))}
+                          placeholder="#"
+                        />
+                      ) : (
+                        player.number ?? '-'
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          value={editingPlayerForm.name}
+                          onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, name: event.target.value }))}
+                        />
+                      ) : (
+                        player.name
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          value={editingPlayerForm.position}
+                          onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, position: event.target.value }))}
+                        />
+                      ) : (
+                        player.position || '-'
+                      )}
+                    </td>
+                    <td className="row-actions">
+                      {isEditing ? (
+                        <>
+                          <button type="button" className="secondary" onClick={() => savePlayer(player.id)}>
+                            Save
+                          </button>
+                          <button type="button" className="danger" onClick={cancelEditPlayer}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="secondary" onClick={() => startEditPlayer(player)}>
+                            Edit
+                          </button>
+                          <button type="button" className="danger" onClick={() => deletePlayer(player.id)}>
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -636,7 +877,7 @@ function App() {
       <section className="panel">
         <div className="section-header">
           <h2>Event Tracker</h2>
-          <p className="muted">Select a player + action button. Period and clock stay fixed until you change them.</p>
+          <p className="muted">Select player + action. Period and time remain until you change them.</p>
         </div>
 
         <div className="tracker-controls">
@@ -651,17 +892,34 @@ function App() {
           </label>
           <label>
             Time Left
-            <input
-              value={clock}
-              pattern="^([0-1]?[0-9]):[0-5][0-9]$"
-              onChange={(event) => setClock(event.target.value)}
-              placeholder="15:00"
-            />
+            <div className="clock-input">
+              <select
+                value={clockParts.minutes}
+                onChange={(event) => setClock(`${event.target.value}:${clockParts.seconds}`)}
+              >
+                {minuteOptions.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {minute}
+                  </option>
+                ))}
+              </select>
+              <span>:</span>
+              <select
+                value={clockParts.seconds}
+                onChange={(event) => setClock(`${clockParts.minutes}:${event.target.value}`)}
+              >
+                {secondOptions.map((second) => (
+                  <option key={second} value={second}>
+                    {second}
+                  </option>
+                ))}
+              </select>
+            </div>
           </label>
           <label>
-            Match Filter
+            Match
             <select value={selectedMatchId} onChange={(event) => setSelectedMatchId(event.target.value)}>
-              <option value="">All matches</option>
+              {!matches.length ? <option value="">No matches yet</option> : null}
               {matches.map((match) => (
                 <option key={match.id} value={match.id}>
                   {match.opponent} {match.match_date ? `(${match.match_date})` : ''}
@@ -669,6 +927,14 @@ function App() {
               ))}
             </select>
           </label>
+        </div>
+
+        <div className="clock-presets">
+          {clockPresets.map((preset) => (
+            <button key={preset} type="button" onClick={() => setClock(preset)} className={clock === preset ? 'preset active' : 'preset'}>
+              {preset}
+            </button>
+          ))}
         </div>
 
         <h3>Select Player</h3>
@@ -723,7 +989,9 @@ function App() {
                 const match = matches.find((item) => item.id === event.match_id);
                 return (
                   <tr key={event.id}>
-                    <td>Q{event.period} - {event.time_left || '-'}</td>
+                    <td>
+                      Q{event.period} - {event.time_left || '-'}
+                    </td>
                     <td>{player ? `#${player.number ?? '-'} ${player.name}` : '-'}</td>
                     <td>{event.event_type.replaceAll('_', ' ')}</td>
                     <td>{match?.opponent || '-'}</td>
@@ -743,7 +1011,7 @@ function App() {
         <section className="panel">
           <div className="section-header">
             <h2>Analytics</h2>
-            <p className="muted">Most-used field hockey KPIs for team analysis.</p>
+            <p className="muted">Core KPI block with advanced trends and player report card.</p>
           </div>
 
           <div className="kpi-grid">
@@ -754,16 +1022,84 @@ function App() {
             <article className="kpi-card"><span>Shot Accuracy</span><strong>{kpis.shotAccuracy}</strong></article>
             <article className="kpi-card"><span>Goal Conversion</span><strong>{kpis.goalConversion}</strong></article>
             <article className="kpi-card"><span>PC Won</span><strong>{kpis.pcWon}</strong></article>
-            <article className="kpi-card"><span>PC Goal</span><strong>{kpis.pcGoal}</strong></article>
             <article className="kpi-card"><span>PC Conversion</span><strong>{kpis.pcConversion}</strong></article>
             <article className="kpi-card"><span>PS Conversion</span><strong>{kpis.psConversion}</strong></article>
             <article className="kpi-card"><span>Circle Entries</span><strong>{kpis.circleEntries}</strong></article>
             <article className="kpi-card"><span>Saves</span><strong>{kpis.saves}</strong></article>
-            <article className="kpi-card"><span>Interceptions</span><strong>{kpis.interceptions}</strong></article>
-            <article className="kpi-card"><span>Tackles Won</span><strong>{kpis.tacklesWon}</strong></article>
             <article className="kpi-card"><span>Turnover Balance</span><strong>{kpis.turnoverBalance}</strong></article>
-            <article className="kpi-card"><span>Cards (G/Y/R)</span><strong>{kpis.greenCards}/{kpis.yellowCards}/{kpis.redCards}</strong></article>
           </div>
+        </section>
+
+        <section className="panel">
+          <h3>Match Trend Overview</h3>
+          <div className="trend-list">
+            {matchTrends.map((row) => (
+              <article key={row.matchId} className="trend-row">
+                <div>
+                  <p className="trend-title">{row.opponent}</p>
+                  <p className="muted small">{row.date || 'No date'}</p>
+                </div>
+                <div className="trend-metrics">
+                  <span>G {row.goals}</span>
+                  <span>S {row.shots}</span>
+                  <span>SOT {row.onTarget}</span>
+                  <span>PC% {row.pcConversionNum}%</span>
+                </div>
+                <div className="trend-bars">
+                  <div className="bar-wrap">
+                    <span>Shots</span>
+                    <div className="bar-bg"><div className="bar-fill shots" style={{ width: `${Math.round((row.shots / trendMax.maxShots) * 100)}%` }} /></div>
+                  </div>
+                  <div className="bar-wrap">
+                    <span>Goals</span>
+                    <div className="bar-bg"><div className="bar-fill goals" style={{ width: `${Math.round((row.goals / trendMax.maxGoals) * 100)}%` }} /></div>
+                  </div>
+                  <div className="bar-wrap">
+                    <span>Entries</span>
+                    <div className="bar-bg"><div className="bar-fill entries" style={{ width: `${Math.round((row.circleEntries / trendMax.maxEntries) * 100)}%` }} /></div>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel two-col">
+          <article>
+            <h3>Player Report Card</h3>
+            <select value={reportPlayerId} onChange={(event) => setReportPlayerId(event.target.value)}>
+              <option value="">Select player</option>
+              {players.map((player) => (
+                <option key={player.id} value={player.id}>
+                  #{player.number ?? '-'} {player.name}
+                </option>
+              ))}
+            </select>
+            {playerReport ? (
+              <div className="report-grid">
+                <p><strong>Player:</strong> #{playerReport.player.number ?? '-'} {playerReport.player.name}</p>
+                <p><strong>Events:</strong> {playerReport.events}</p>
+                <p><strong>Goals + Assists:</strong> {playerReport.contributions}</p>
+                <p><strong>Shots / On Target:</strong> {playerReport.shots} / {playerReport.onTarget}</p>
+                <p><strong>Shot Accuracy:</strong> {playerReport.shotAccuracy}</p>
+                <p><strong>Circle Entries:</strong> {playerReport.circleEntries}</p>
+                <p><strong>Tackles + Interceptions:</strong> {playerReport.tackles + playerReport.interceptions}</p>
+                <p><strong>PC Goals:</strong> {playerReport.pcGoals}</p>
+              </div>
+            ) : (
+              <p className="muted">No player selected.</p>
+            )}
+          </article>
+
+          <article>
+            <h3>Discipline & Control Index</h3>
+            <div className="kpi-grid compact">
+              <article className="kpi-card"><span>Control (SOT%)</span><strong>{kpis.shotAccuracyNum}</strong></article>
+              <article className="kpi-card"><span>Finishing (Goal%)</span><strong>{kpis.goalConversionNum}</strong></article>
+              <article className="kpi-card"><span>Transition</span><strong>{kpis.turnoverBalance}</strong></article>
+              <article className="kpi-card"><span>Discipline</span><strong>{Math.max(0, 100 - (kpis.greenCards + kpis.yellowCards * 2 + kpis.redCards * 4) * 8)}</strong></article>
+            </div>
+          </article>
         </section>
 
         <section className="panel">
@@ -797,16 +1133,80 @@ function App() {
     );
   }
 
+  function renderSettings() {
+    return (
+      <section className="panel">
+        <div className="section-header">
+          <h2>Settings</h2>
+          <p className="muted">Control module visibility and event defaults.</p>
+        </div>
+
+        <div className="settings-grid">
+          <article>
+            <h3>Visible Modules</h3>
+            <div className="toggle-list">
+              {ALL_MODULES.map((moduleName) => (
+                <label key={moduleName} className="toggle-item">
+                  <input
+                    type="checkbox"
+                    checked={settings.visibleModules[moduleName] !== false}
+                    disabled={moduleName === 'Home'}
+                    onChange={() => toggleModule(moduleName)}
+                  />
+                  <span>{moduleName}</span>
+                </label>
+              ))}
+            </div>
+          </article>
+
+          <article>
+            <h3>Tracker Defaults</h3>
+            <label className="stacked-label">
+              Quarter Length (minutes)
+              <select
+                value={settings.quarterLength}
+                onChange={(event) =>
+                  setSettings((prev) => ({ ...prev, quarterLength: Number(event.target.value) }))
+                }
+              >
+                <option value={10}>10</option>
+                <option value={12}>12</option>
+                <option value={15}>15</option>
+              </select>
+            </label>
+
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setSettings(DEFAULT_SETTINGS);
+                setPeriod(1);
+                setClock('15:00');
+              }}
+            >
+              Reset Settings
+            </button>
+          </article>
+        </div>
+      </section>
+    );
+  }
+
   function renderModule() {
     if (activeModule === 'Matches') return renderMatches();
     if (activeModule === 'Roster') return renderRoster();
     if (activeModule === 'Event Tracker') return renderEventTracker();
     if (activeModule === 'Analytics') return renderAnalytics();
+    if (activeModule === 'Settings') return renderSettings();
     return renderHome();
   }
 
   if (authLoading) {
-    return <div className="page-shell"><p className="status">Loading...</p></div>;
+    return (
+      <div className="page-shell">
+        <p className="status">Loading...</p>
+      </div>
+    );
   }
 
   if (!session) {
@@ -837,7 +1237,7 @@ function App() {
           <h1>Field Hockey Hub</h1>
         </div>
         <nav>
-          {MODULES.map((module) => (
+          {visibleModules.map((module) => (
             <button
               key={module}
               className={`nav-item ${activeModule === module ? 'active' : ''}`}
@@ -892,7 +1292,6 @@ function App() {
 
         {loadingData ? <p className="status">Loading data...</p> : null}
         {status && !loadingData ? <p className="status">{status}</p> : null}
-
         {renderModule()}
       </main>
     </div>
