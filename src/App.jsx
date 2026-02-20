@@ -1370,6 +1370,7 @@ function App() {
         {status && !loadingData ? <p className="status">{status}</p> : null}
         {renderModule()}
       </main>
+
     </div>
   );
 }

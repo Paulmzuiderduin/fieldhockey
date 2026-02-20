@@ -65,12 +65,16 @@
 }
 
 .feature-link {
+  border: 0;
+  background: transparent;
+  text-align: left;
   color: #daf5ef;
   font-size: 0.9rem;
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 2px;
   opacity: 0.95;
+  cursor: pointer;
 }
 
 .feature-link:hover {
