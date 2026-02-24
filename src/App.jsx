@@ -177,6 +177,7 @@ function App() {
   const [editingPlayerId, setEditingPlayerId] = useState('');
   const [editingPlayerForm, setEditingPlayerForm] = useState(EMPTY_PLAYER_FORM);
   const [reportPlayerId, setReportPlayerId] = useState('');
+  const [featureDialog, setFeatureDialog] = useState(null);
   const [period, setPeriod] = useState(1);
   const [clock, setClock] = useState(`${String(DEFAULT_SETTINGS.quarterLength).padStart(2, '0')}:00`);
 
@@ -542,6 +543,34 @@ function App() {
     setSelectedTeamId('');
     setSelectedMatchId('');
     setStatus('Signed out.');
+  }
+
+  async function submitFeatureRequest() {
+    if (!featureDialog || !session?.user?.id) return;
+    const subject = featureDialog.subject?.trim();
+    const message = featureDialog.message?.trim();
+    if (!subject || !message) {
+      setFeatureDialog((prev) => (prev ? { ...prev, error: 'Please enter subject and message.' } : prev));
+      return;
+    }
+    setFeatureDialog((prev) => (prev ? { ...prev, submitting: true, error: '' } : prev));
+    const { error } = await supabase.from('feature_requests').insert({
+      user_id: session.user.id,
+      season_id: selectedSeasonId || null,
+      team_id: selectedTeamId || null,
+      app_name: 'fieldhockey',
+      subject,
+      message,
+      status: 'new'
+    });
+    if (error) {
+      setFeatureDialog((prev) =>
+        prev ? { ...prev, submitting: false, error: `Could not submit request: ${error.message}` } : prev
+      );
+      return;
+    }
+    setFeatureDialog(null);
+    setStatus('Feature request submitted.');
   }
 
   async function createSeason(event) {
@@ -1317,12 +1346,19 @@ function App() {
             </button>
           ))}
         </nav>
-        <a
+        <button
           className="feature-link"
-          href="https://mail.google.com/mail/?view=cm&fs=1&to=info@paulzuiderduin.com&su=Field%20Hockey%20Feature%20Request"
+          onClick={() =>
+            setFeatureDialog({
+              subject: 'Field Hockey Feature Request',
+              message: '',
+              submitting: false,
+              error: ''
+            })
+          }
         >
           Request Feature
-        </a>
+        </button>
         <button className="signout" onClick={signOut}>Sign out</button>
       </aside>
 
