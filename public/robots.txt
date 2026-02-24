@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://fieldhockey.paulzuiderduin.com/sitemap.xml
