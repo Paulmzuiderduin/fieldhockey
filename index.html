@@ -2,17 +2,141 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>fieldhockey</title>
-  
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-KGLTSPFH64"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-KGLTSPFH64');
+    <meta
+      name="description"
+      content="Field Hockey Hub for roster management, event tracking, match insights, and player analytics."
+    />
+    <meta
+      name="keywords"
+      content="field hockey analytics, field hockey event tracking, hockey coaching app, field hockey stats"
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0f6d3a" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Field Hockey Hub" />
+    <meta property="og:title" content="Field Hockey Hub | Tracking & Analytics" />
+    <meta
+      property="og:description"
+      content="Track field hockey matches, events, and player performance in one practical coaching workspace."
+    />
+    <meta property="og:url" content="https://fieldhockey.paulzuiderduin.com/" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Field Hockey Hub | Tracking & Analytics" />
+    <meta
+      name="twitter:description"
+      content="Track field hockey matches, events, and player performance in one practical coaching workspace."
+    />
+
+    <link rel="canonical" href="https://fieldhockey.paulzuiderduin.com/" />
+    <title>Field Hockey Hub | Tracking & Analytics</title>
+
+<script>
+      (function () {
+        var CONSENT_KEY = 'pz_analytics_consent_v1';
+        var MEASUREMENT_ID = 'G-KGLTSPFH64';
+
+        function loadAnalytics() {
+          if (window.__gaLoaded) return;
+          window.__gaLoaded = true;
+          window.dataLayer = window.dataLayer || [];
+          window.gtag = window.gtag || function () { window.dataLayer.push(arguments); };
+          gtag('js', new Date());
+          gtag('config', MEASUREMENT_ID, { anonymize_ip: true });
+          var script = document.createElement('script');
+          script.async = true;
+          script.src = 'https://www.googletagmanager.com/gtag/js?id=' + MEASUREMENT_ID;
+          document.head.appendChild(script);
+        }
+
+        function saveConsent(value) {
+          try {
+            localStorage.setItem(CONSENT_KEY, value);
+          } catch (error) {
+            // Ignore storage errors and continue without persistence.
+          }
+        }
+
+        function readConsent() {
+          try {
+            return localStorage.getItem(CONSENT_KEY);
+          } catch (error) {
+            return null;
+          }
+        }
+
+        function removeBanner() {
+          var banner = document.getElementById('consent-banner');
+          if (banner) banner.remove();
+        }
+
+        function createBanner() {
+          if (document.getElementById('consent-banner')) return;
+          var banner = document.createElement('div');
+          banner.id = 'consent-banner';
+          banner.setAttribute('role', 'dialog');
+          banner.setAttribute('aria-live', 'polite');
+          banner.style.cssText = [
+            'position:fixed',
+            'left:16px',
+            'right:16px',
+            'bottom:16px',
+            'z-index:9999',
+            'padding:12px 14px',
+            'border-radius:12px',
+            'border:1px solid rgba(15,23,42,0.18)',
+            'background:#ffffff',
+            'box-shadow:0 14px 32px -22px rgba(2,6,23,0.6)',
+            'display:flex',
+            'flex-wrap:wrap',
+            'align-items:center',
+            'gap:10px',
+            'font:500 13px/1.4 Manrope, Arial, sans-serif',
+            'color:#0f172a'
+          ].join(';');
+
+          var text = document.createElement('span');
+          text.style.flex = '1 1 260px';
+          text.textContent = 'Allow privacy-friendly analytics to improve this website?';
+
+          var reject = document.createElement('button');
+          reject.type = 'button';
+          reject.textContent = 'Reject';
+          reject.style.cssText = 'border:1px solid rgba(15,23,42,0.18);background:#fff;color:#0f172a;border-radius:999px;padding:7px 12px;font:700 12px Manrope, Arial,sans-serif;cursor:pointer;';
+          reject.onclick = function () {
+            saveConsent('denied');
+            removeBanner();
+          };
+
+          var accept = document.createElement('button');
+          accept.type = 'button';
+          accept.textContent = 'Accept';
+          accept.style.cssText = 'border:1px solid transparent;background:#0f4ea6;color:#fff;border-radius:999px;padding:7px 12px;font:700 12px Manrope, Arial,sans-serif;cursor:pointer;';
+          accept.onclick = function () {
+            saveConsent('granted');
+            loadAnalytics();
+            removeBanner();
+          };
+
+          banner.appendChild(text);
+          banner.appendChild(reject);
+          banner.appendChild(accept);
+          document.body.appendChild(banner);
+        }
+
+        var consent = readConsent();
+        if (consent === 'granted') {
+          loadAnalytics();
+        }
+
+        window.addEventListener('DOMContentLoaded', function () {
+          if (!readConsent()) createBanner();
+        });
+      })();
     </script>
+  
   </head>
   <body>
     <div id="root"></div>
