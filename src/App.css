@@ -19,6 +19,21 @@
   gap: 16px;
 }
 
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.1);
+  padding: 3px;
+}
+
 .brand-eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.08em;

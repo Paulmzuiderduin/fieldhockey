@@ -1312,6 +1312,7 @@ function App() {
     return (
       <div className="auth-screen">
         <form className="auth-card" onSubmit={sendMagicLink}>
+          <img className="auth-logo" src="/fieldhockey-hub-logo.svg" alt="Field Hockey Hub" />
           <h1>Field Hockey Hub</h1>
           <p>Sign in with a magic link to access your seasons, teams, and events.</p>
           <input
@@ -1332,8 +1333,11 @@ function App() {
     <div className="layout">
       <aside className="sidebar">
         <div className="brand-block">
-          <p className="brand-eyebrow">Sport-Tech</p>
-          <h1>Field Hockey Hub</h1>
+          <img className="brand-logo" src="/fieldhockey-hub-logo.svg" alt="Field Hockey Hub" />
+          <div>
+            <p className="brand-eyebrow">Sport-Tech</p>
+            <h1>Field Hockey Hub</h1>
+          </div>
         </div>
         <nav>
           {visibleModules.map((module) => (
