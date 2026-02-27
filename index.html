@@ -71,6 +71,17 @@
           }
         }
 
+        function resetAnalyticsPreferences() {
+          try {
+            localStorage.removeItem(CONSENT_KEY);
+          } catch (error) {
+            // Ignore storage errors and continue with reload.
+          }
+          window.location.reload();
+        }
+
+        window.resetAnalyticsPreferences = resetAnalyticsPreferences;
+
         function removeBanner() {
           var banner = document.getElementById('consent-banner');
           if (banner) banner.remove();
@@ -130,12 +141,37 @@
           document.body.appendChild(banner);
         }
 
+        function ensurePreferencesButton() {
+          if (document.getElementById('analytics-preferences-button')) return;
+          var button = document.createElement('button');
+          button.id = 'analytics-preferences-button';
+          button.type = 'button';
+          button.textContent = 'Analytics preferences';
+          button.style.cssText = [
+            'position:fixed',
+            'right:16px',
+            'bottom:16px',
+            'z-index:9998',
+            'padding:9px 12px',
+            'border-radius:999px',
+            'border:1px solid rgba(15,23,42,0.16)',
+            'background:rgba(255,255,255,0.96)',
+            'color:#0f172a',
+            'box-shadow:0 12px 32px -22px rgba(2,6,23,0.55)',
+            'font:700 12px/1.2 Manrope, Arial, sans-serif',
+            'cursor:pointer'
+          ].join(';');
+          button.onclick = resetAnalyticsPreferences;
+          document.body.appendChild(button);
+        }
+
         var consent = readConsent();
         if (consent === 'granted') {
           loadAnalytics();
         }
 
         window.addEventListener('DOMContentLoaded', function () {
+          ensurePreferencesButton();
           if (!readConsent()) createBanner();
         });
       })();
