@@ -42,16 +42,49 @@
         var CONSENT_KEY = 'pz_analytics_consent_v1';
         var MEASUREMENT_ID = 'G-KGLTSPFH64';
 
-        function loadAnalytics() {
-          if (window.__gaLoaded) return;
-          window.__gaLoaded = true;
-          window.dataLayer = window.dataLayer || [];
-          window.gtag = window.gtag || function () { window.dataLayer.push(arguments); };
+        function configureAnalytics() {
+          if (window.__gaConfigured || !window.gtag) return;
+          window.__gaConfigured = true;
           gtag('js', new Date());
           gtag('config', MEASUREMENT_ID, { anonymize_ip: true });
+        }
+
+        function loadAnalytics() {
+          window.dataLayer = window.dataLayer || [];
+          window.gtag = window.gtag || function () { window.dataLayer.push(arguments); };
+
+          if (window.__gaLoaded) {
+            configureAnalytics();
+            return;
+          }
+
+          window.__gaLoaded = true;
+
+          var existingScript = document.querySelector('script[data-ga-measurement-id="' + MEASUREMENT_ID + '"]');
+          if (existingScript) {
+            if (window.__gaScriptReady) {
+              configureAnalytics();
+            } else {
+              existingScript.addEventListener('load', function () {
+                window.__gaScriptReady = true;
+                configureAnalytics();
+              }, { once: true });
+            }
+            return;
+          }
+
           var script = document.createElement('script');
           script.async = true;
           script.src = 'https://www.googletagmanager.com/gtag/js?id=' + MEASUREMENT_ID;
+          script.dataset.gaMeasurementId = MEASUREMENT_ID;
+          script.onload = function () {
+            window.__gaScriptReady = true;
+            configureAnalytics();
+          };
+          script.onerror = function () {
+            window.__gaLoaded = false;
+            window.__gaConfigured = false;
+          };
           document.head.appendChild(script);
         }
 
@@ -75,9 +108,10 @@
           try {
             localStorage.removeItem(CONSENT_KEY);
           } catch (error) {
-            // Ignore storage errors and continue with reload.
+            // Ignore storage errors and continue.
           }
-          window.location.reload();
+          removeBanner();
+          createBanner();
         }
 
         window.resetAnalyticsPreferences = resetAnalyticsPreferences;
