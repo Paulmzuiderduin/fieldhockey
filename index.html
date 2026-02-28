@@ -123,37 +123,56 @@
 
         function createBanner() {
           if (document.getElementById('consent-banner')) return;
+          var overlay = document.createElement('div');
+          overlay.id = 'consent-banner';
+          overlay.style.cssText = [
+            'position:fixed',
+            'inset:0',
+            'z-index:9999',
+            'display:flex',
+            'align-items:center',
+            'justify-content:center',
+            'padding:24px',
+            'background:rgba(15,23,42,0.42)'
+          ].join(';');
+
           var banner = document.createElement('div');
-          banner.id = 'consent-banner';
           banner.setAttribute('role', 'dialog');
           banner.setAttribute('aria-live', 'polite');
           banner.style.cssText = [
-            'position:fixed',
-            'left:16px',
-            'right:16px',
-            'bottom:16px',
-            'z-index:9999',
-            'padding:12px 14px',
-            'border-radius:12px',
+            'width:min(100%,540px)',
+            'padding:22px',
+            'border-radius:20px',
             'border:1px solid rgba(15,23,42,0.18)',
             'background:#ffffff',
-            'box-shadow:0 14px 32px -22px rgba(2,6,23,0.6)',
-            'display:flex',
-            'flex-wrap:wrap',
-            'align-items:center',
-            'gap:10px',
-            'font:500 13px/1.4 Manrope, Arial, sans-serif',
+            'box-shadow:0 30px 80px -28px rgba(2,6,23,0.75)',
+            'display:grid',
+            'gap:16px',
+            'font:500 14px/1.5 Manrope, Arial, sans-serif',
             'color:#0f172a'
           ].join(';');
 
-          var text = document.createElement('span');
-          text.style.flex = '1 1 260px';
-          text.textContent = 'Allow privacy-friendly analytics to improve this website?';
+          var heading = document.createElement('div');
+          heading.style.cssText = 'font:800 18px/1.2 Manrope, Arial, sans-serif;color:#0f172a;';
+          heading.textContent = 'Analytics preferences';
+
+          var text = document.createElement('div');
+          text.textContent =
+            'Allow privacy-friendly analytics so I can understand visits and improve the website. Google Analytics 4 only loads after you accept.';
+
+          var note = document.createElement('div');
+          note.style.cssText =
+            'font:500 12px/1.5 Manrope, Arial, sans-serif;color:#475569;background:#f8fafc;border:1px solid rgba(148,163,184,0.24);border-radius:12px;padding:10px 12px;';
+          note.textContent =
+            'You can keep using the site if you reject. You can also change this later via Analytics preferences.';
+
+          var actions = document.createElement('div');
+          actions.style.cssText = 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;';
 
           var reject = document.createElement('button');
           reject.type = 'button';
           reject.textContent = 'Reject';
-          reject.style.cssText = 'border:1px solid rgba(15,23,42,0.18);background:#fff;color:#0f172a;border-radius:999px;padding:7px 12px;font:700 12px Manrope, Arial,sans-serif;cursor:pointer;';
+          reject.style.cssText = 'border:1px solid rgba(15,23,42,0.18);background:#fff;color:#0f172a;border-radius:999px;padding:12px 14px;font:700 13px Manrope, Arial,sans-serif;cursor:pointer;';
           reject.onclick = function () {
             saveConsent('denied');
             removeBanner();
@@ -162,17 +181,21 @@
           var accept = document.createElement('button');
           accept.type = 'button';
           accept.textContent = 'Accept';
-          accept.style.cssText = 'border:1px solid transparent;background:#0f4ea6;color:#fff;border-radius:999px;padding:7px 12px;font:700 12px Manrope, Arial,sans-serif;cursor:pointer;';
+          accept.style.cssText = 'border:1px solid transparent;background:#0f4ea6;color:#fff;border-radius:999px;padding:12px 14px;font:700 13px Manrope, Arial,sans-serif;cursor:pointer;';
           accept.onclick = function () {
             saveConsent('granted');
             loadAnalytics();
             removeBanner();
           };
 
+          actions.appendChild(reject);
+          actions.appendChild(accept);
+          banner.appendChild(heading);
           banner.appendChild(text);
-          banner.appendChild(reject);
-          banner.appendChild(accept);
-          document.body.appendChild(banner);
+          banner.appendChild(note);
+          banner.appendChild(actions);
+          overlay.appendChild(banner);
+          document.body.appendChild(overlay);
         }
 
         function ensurePreferencesButton() {
