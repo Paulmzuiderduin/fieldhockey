@@ -3,12 +3,15 @@ import './App.css';
 import { supabase } from './lib/supabase';
 
 const MODULES = [
-  { name: 'Home', alwaysVisible: true },
-  { name: 'Matches' },
+  { name: 'Home', alwaysVisible: true, mobilePrimary: true },
+  { name: 'Matches', mobilePrimary: true },
   { name: 'Roster' },
-  { name: 'Event Tracker' },
-  { name: 'Stat Sheet' },
+  { name: 'Players' },
+  { name: 'Event Tracker', mobilePrimary: true },
+  { name: 'Stat Sheet', mobilePrimary: true },
   { name: 'Analytics' },
+  { name: 'Video', advanced: true },
+  { name: 'Possession', advanced: true },
   { name: 'Help', alwaysVisible: true },
   { name: 'Privacy', alwaysVisible: true },
   { name: 'Changelog', alwaysVisible: true },
@@ -18,11 +21,16 @@ const MODULES = [
 const DEFAULT_SETTINGS = {
   quarterLength: 15,
   showStatTooltips: true,
+  rememberLastModule: true,
+  showHubTips: true,
+  showAdvancedModules: false,
+  showBackupReminder: true,
+  lastBackupAt: '',
+  defaultAnalysisScope: 'match',
   visibleModules: MODULES.reduce((acc, module) => {
     acc[module.name] = true;
     return acc;
-  }, {}),
-  defaultAnalysisScope: 'match'
+  }, {})
 };
 
 const ACTION_GROUPS = [
@@ -33,12 +41,7 @@ const ACTION_GROUPS = [
       { key: 'goal', label: 'Goal', className: 'action-goal', tooltip: 'Open play goal.' },
       { key: 'assist', label: 'Assist', className: 'action-assist', tooltip: 'Final pass before a goal.' },
       { key: 'shot', label: 'Shot', className: 'action-shot', tooltip: 'Shot attempt that did not hit target.' },
-      {
-        key: 'shot_on_target',
-        label: 'Shot On Target',
-        className: 'action-shot-target',
-        tooltip: 'Shot that would score without a save.'
-      },
+      { key: 'shot_on_target', label: 'Shot On Target', className: 'action-shot-target', tooltip: 'Shot that would score without a save.' },
       { key: 'circle_entry', label: 'Circle Entry', className: 'action-circle', tooltip: 'Controlled circle entry.' },
       { key: 'pc_won', label: 'PC Won', className: 'action-pc', tooltip: 'Penalty corner won.' },
       { key: 'pc_goal', label: 'PC Goal', className: 'action-pc-goal', tooltip: 'Goal from penalty corner.' },
@@ -53,18 +56,8 @@ const ACTION_GROUPS = [
       { key: 'save', label: 'Save', className: 'action-save', tooltip: 'Goalkeeper or defensive save.' },
       { key: 'interception', label: 'Interception', className: 'action-interception', tooltip: 'Intercepted pass/ball.' },
       { key: 'tackle_won', label: 'Tackle Won', className: 'action-tackle', tooltip: 'Successful tackle.' },
-      {
-        key: 'turnover_won',
-        label: 'Turnover Won',
-        className: 'action-turnover-won',
-        tooltip: 'Regained possession from opponent.'
-      },
-      {
-        key: 'turnover_lost',
-        label: 'Turnover Lost',
-        className: 'action-turnover-lost',
-        tooltip: 'Lost possession.'
-      },
+      { key: 'turnover_won', label: 'Turnover Won', className: 'action-turnover-won', tooltip: 'Regained possession from opponent.' },
+      { key: 'turnover_lost', label: 'Turnover Lost', className: 'action-turnover-lost', tooltip: 'Lost possession.' },
       { key: 'pc_conceded', label: 'PC Conceded', className: 'action-pc-conceded', tooltip: 'Penalty corner conceded.' },
       { key: 'card_green', label: 'Green Card', className: 'action-card-green', tooltip: 'Green card.' },
       { key: 'card_yellow', label: 'Yellow Card', className: 'action-card-yellow', tooltip: 'Yellow card.' },
@@ -101,8 +94,8 @@ const EMPTY_PLAYER_FORM = { name: '', number: '', position: '' };
 const EMPTY_MATCH_FORM = { opponent: '', match_date: '' };
 const EMPTY_REQUEST = { subject: 'Field Hockey Feature Request', message: '', submitting: false, error: '' };
 
-const SETTINGS_KEY = 'fieldhockey_settings_v2';
-const UI_KEY = 'fieldhockey_ui_state_v2';
+const SETTINGS_KEY = 'fieldhockey_settings_v3';
+const UI_KEY = 'fieldhockey_ui_state_v3';
 
 function safeParse(value, fallback) {
   try {
@@ -119,6 +112,18 @@ function loadLocalSettings() {
     quarterLength: Number(parsed.quarterLength) || DEFAULT_SETTINGS.quarterLength,
     showStatTooltips:
       typeof parsed.showStatTooltips === 'boolean' ? parsed.showStatTooltips : DEFAULT_SETTINGS.showStatTooltips,
+    rememberLastModule:
+      typeof parsed.rememberLastModule === 'boolean' ? parsed.rememberLastModule : DEFAULT_SETTINGS.rememberLastModule,
+    showHubTips: typeof parsed.showHubTips === 'boolean' ? parsed.showHubTips : DEFAULT_SETTINGS.showHubTips,
+    showAdvancedModules:
+      typeof parsed.showAdvancedModules === 'boolean'
+        ? parsed.showAdvancedModules
+        : DEFAULT_SETTINGS.showAdvancedModules,
+    showBackupReminder:
+      typeof parsed.showBackupReminder === 'boolean'
+        ? parsed.showBackupReminder
+        : DEFAULT_SETTINGS.showBackupReminder,
+    lastBackupAt: typeof parsed.lastBackupAt === 'string' ? parsed.lastBackupAt : DEFAULT_SETTINGS.lastBackupAt,
     defaultAnalysisScope:
       parsed.defaultAnalysisScope === 'season' || parsed.defaultAnalysisScope === 'match'
         ? parsed.defaultAnalysisScope
@@ -130,6 +135,22 @@ function loadLocalSettings() {
   };
 }
 
+const MODULE_COPY = {
+  Home: 'Overview of the current workspace, quick access to modules, and operational guidance.',
+  Matches: 'Create, edit, and manage the match list for the selected season and team.',
+  Roster: 'Manage the shared team roster used across all field hockey modules.',
+  Players: 'Review player report cards and compare output across selected data scope.',
+  'Event Tracker': 'Track match events for your team with a fast, live-friendly workflow.',
+  'Stat Sheet': 'Review match and season stat tables derived from scoring events.',
+  Analytics: 'Review team KPIs, trends, and top contributors.',
+  Video: 'Work with local video clips without uploading source footage.',
+  Possession: 'Map possessions and passing sequences (advanced).',
+  Help: 'Getting started, legends, and common workflow questions.',
+  Privacy: 'Privacy and data handling information for this hub.',
+  Changelog: 'Recent product updates, fixes, and module-level improvements.',
+  Settings: 'Adjust visible modules, advanced analysis access, and workspace preferences.'
+};
+
 function loadUiState() {
   const parsed = safeParse(localStorage.getItem(UI_KEY), {});
   return {
@@ -137,7 +158,8 @@ function loadUiState() {
     selectedSeasonId: parsed.selectedSeasonId || '',
     selectedTeamId: parsed.selectedTeamId || '',
     selectedMatchId: parsed.selectedMatchId || '',
-    analysisScope: parsed.analysisScope === 'season' ? 'season' : 'match'
+    analysisScope: parsed.analysisScope === 'season' ? 'season' : 'match',
+    sidebarCollapsed: Boolean(parsed.sidebarCollapsed)
   };
 }
 
@@ -190,13 +212,6 @@ function splitClock(value) {
     minutes: /^\d{1,2}$/.test(rawMinutes || '') ? rawMinutes.padStart(2, '0') : '00',
     seconds: /^\d{1,2}$/.test(rawSeconds || '') ? rawSeconds.padStart(2, '0') : '00'
   };
-}
-
-function getTimeGreeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
 }
 
 function downloadTextFile(filename, content, mimeType = 'text/plain;charset=utf-8') {
@@ -322,6 +337,52 @@ function buildGeneratedRows(matches, events) {
   });
 }
 
+function buildPlayerMatchRows(matches, players, events, scope, selectedMatchId) {
+  const matchMap = new Map(matches.map((match) => [match.id, match]));
+  const playerMap = new Map(players.map((player) => [player.id, player]));
+  const scopedMatchId = scope === 'match' ? selectedMatchId : '';
+  const groups = new Map();
+
+  events.forEach((event) => {
+    if (!event.match_id || !event.player_id) return;
+    if (scopedMatchId && event.match_id !== scopedMatchId) return;
+    const key = `${event.match_id}__${event.player_id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(event);
+  });
+
+  return Array.from(groups.entries())
+    .map(([key, groupEvents]) => {
+      const [matchId, playerId] = key.split('__');
+      const match = matchMap.get(matchId);
+      const player = playerMap.get(playerId);
+      const stats = computeStatsFromEvents(groupEvents);
+      return {
+        rowId: `pm_${key}`,
+        matchId,
+        matchDate: match?.match_date || '',
+        opponent: match?.opponent || 'Unknown match',
+        playerId,
+        playerName: player?.name || 'Unknown player',
+        playerNumber: player?.number ?? null,
+        eventCount: groupEvents.length,
+        ...stats
+      };
+    })
+    .sort((a, b) => {
+      if (!a.matchDate && !b.matchDate) {
+        if ((a.playerNumber ?? 999) !== (b.playerNumber ?? 999)) return (a.playerNumber ?? 999) - (b.playerNumber ?? 999);
+        return a.playerName.localeCompare(b.playerName);
+      }
+      if (!a.matchDate) return 1;
+      if (!b.matchDate) return -1;
+      const byDate = b.matchDate.localeCompare(a.matchDate);
+      if (byDate !== 0) return byDate;
+      if ((a.playerNumber ?? 999) !== (b.playerNumber ?? 999)) return (a.playerNumber ?? 999) - (b.playerNumber ?? 999);
+      return a.playerName.localeCompare(b.playerName);
+    });
+}
+
 function buildSummary(rows) {
   if (!rows.length) {
     return {
@@ -424,7 +485,7 @@ function parseStatSheetCsv(text) {
       continue;
     }
 
-    const row = {
+    rows.push({
       rowId: `imported_${Date.now()}_${lineIndex}`,
       source: 'imported',
       matchId: '',
@@ -457,9 +518,7 @@ function parseStatSheetCsv(text) {
       finishingIndex: parseNumber(readValue(record, ['finishing_index'])) ?? null,
       transitionIndex: parseNumber(readValue(record, ['transition_index'])) ?? null,
       disciplineIndex: parseNumber(readValue(record, ['discipline_index'])) ?? null
-    };
-
-    rows.push(row);
+    });
   }
 
   return {
@@ -507,6 +566,11 @@ function App() {
   const [selectedSeasonId, setSelectedSeasonId] = useState(initialUiState.selectedSeasonId);
   const [selectedTeamId, setSelectedTeamId] = useState(initialUiState.selectedTeamId);
   const [selectedMatchId, setSelectedMatchId] = useState(initialUiState.selectedMatchId);
+  const [restoringWorkspace, setRestoringWorkspace] = useState(
+    Boolean(initialUiState.selectedSeasonId || initialUiState.selectedTeamId)
+  );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(Boolean(initialUiState.sidebarCollapsed));
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [seasonForm, setSeasonForm] = useState(EMPTY_FORM);
   const [teamForm, setTeamForm] = useState(EMPTY_FORM);
@@ -526,23 +590,36 @@ function App() {
   const [importedRows, setImportedRows] = useState([]);
   const [statSheetSource, setStatSheetSource] = useState('all');
 
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoName, setVideoName] = useState('');
+  const videoRef = useRef(null);
+
   const hiddenImportInputRef = useRef(null);
 
   const selectedSeason = useMemo(() => seasons.find((season) => season.id === selectedSeasonId) || null, [seasons, selectedSeasonId]);
   const selectedTeam = useMemo(() => teams.find((team) => team.id === selectedTeamId) || null, [teams, selectedTeamId]);
 
   const visibleModules = useMemo(() => {
-    return MODULES.filter((module) => module.alwaysVisible || settings.visibleModules[module.name] !== false).map((module) => module.name);
-  }, [settings.visibleModules]);
+    return MODULES.filter((module) => {
+      if (module.advanced && !settings.showAdvancedModules) return false;
+      return module.alwaysVisible || settings.visibleModules[module.name] !== false;
+    }).map((module) => module.name);
+  }, [settings.showAdvancedModules, settings.visibleModules]);
+
+  const mobilePrimaryModules = useMemo(
+    () => visibleModules.filter((name) => MODULES.find((module) => module.name === name)?.mobilePrimary),
+    [visibleModules]
+  );
+  const mobileOverflowModules = useMemo(
+    () => visibleModules.filter((name) => !mobilePrimaryModules.includes(name)),
+    [mobilePrimaryModules, visibleModules]
+  );
 
   const minuteOptions = useMemo(
     () =>
-      Array.from({ length: settings.quarterLength + 1 }, (_, index) =>
-        String(settings.quarterLength - index).padStart(2, '0')
-      ),
+      Array.from({ length: settings.quarterLength + 1 }, (_, index) => String(settings.quarterLength - index).padStart(2, '0')),
     [settings.quarterLength]
   );
-
   const secondOptions = useMemo(() => Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0')), []);
   const clockPresets = useMemo(() => buildClockPresets(settings.quarterLength), [settings.quarterLength]);
   const clockParts = useMemo(() => splitClock(clock), [clock]);
@@ -563,7 +640,11 @@ function App() {
   }, [analysisScope, selectedMatchId, events]);
 
   const generatedStatRows = useMemo(() => buildGeneratedRows(matches, events), [matches, events]);
-
+  const playerMatchRows = useMemo(
+    () => buildPlayerMatchRows(matches, players, events, analysisScope, selectedMatchId),
+    [analysisScope, events, matches, players, selectedMatchId]
+  );
+  const playerMatchSummary = useMemo(() => buildSummary(playerMatchRows), [playerMatchRows]);
   const statRows = useMemo(() => {
     if (statSheetSource === 'generated') return generatedStatRows;
     if (statSheetSource === 'imported') return importedRows;
@@ -587,13 +668,7 @@ function App() {
     for (const event of analysisEvents) {
       if (!event.player_id) continue;
       if (!byPlayer[event.player_id]) {
-        byPlayer[event.player_id] = {
-          playerId: event.player_id,
-          goals: 0,
-          assists: 0,
-          shots: 0,
-          cards: 0
-        };
+        byPlayer[event.player_id] = { playerId: event.player_id, goals: 0, assists: 0, shots: 0, cards: 0 };
       }
       if (event.event_type === 'goal' || event.event_type === 'pc_goal' || event.event_type === 'ps_scored') byPlayer[event.player_id].goals += 1;
       if (event.event_type === 'assist') byPlayer[event.player_id].assists += 1;
@@ -628,6 +703,15 @@ function App() {
     return events.filter((event) => event.match_id === selectedMatchId);
   }, [events, selectedMatchId]);
 
+  const backupReminderDue = useMemo(() => {
+    if (!settings.showBackupReminder) return false;
+    if (!settings.lastBackupAt) return true;
+    const last = new Date(settings.lastBackupAt);
+    if (Number.isNaN(last.getTime())) return true;
+    const diffDays = (Date.now() - last.getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays >= 7;
+  }, [settings.lastBackupAt, settings.showBackupReminder]);
+
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [settings]);
@@ -636,20 +720,27 @@ function App() {
     localStorage.setItem(
       UI_KEY,
       JSON.stringify({
-        activeModule,
+        activeModule: settings.rememberLastModule ? activeModule : 'Home',
         selectedSeasonId,
         selectedTeamId,
         selectedMatchId,
-        analysisScope
+        analysisScope,
+        sidebarCollapsed
       })
     );
-  }, [activeModule, selectedSeasonId, selectedTeamId, selectedMatchId, analysisScope]);
+  }, [activeModule, analysisScope, selectedMatchId, selectedSeasonId, selectedTeamId, settings.rememberLastModule, sidebarCollapsed]);
 
   useEffect(() => {
     if (!visibleModules.includes(activeModule)) {
-      setActiveModule(visibleModules[0] || 'Home');
+      setActiveModule('Home');
     }
   }, [activeModule, visibleModules]);
+
+  useEffect(() => {
+    if (settings.defaultAnalysisScope !== analysisScope && !session?.user?.id) {
+      setAnalysisScope(settings.defaultAnalysisScope);
+    }
+  }, [analysisScope, session?.user?.id, settings.defaultAnalysisScope]);
 
   useEffect(() => {
     if (!clock || Number(clock.split(':')[0]) > settings.quarterLength) {
@@ -676,6 +767,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+    };
+  }, [videoUrl]);
+
+  useEffect(() => {
     if (!session?.user?.id) {
       setSeasons([]);
       setTeams([]);
@@ -685,6 +782,7 @@ function App() {
       setSelectedSeasonId('');
       setSelectedTeamId('');
       setSelectedMatchId('');
+      setRestoringWorkspace(false);
       return;
     }
     loadSeasons(session.user.id);
@@ -695,6 +793,7 @@ function App() {
     if (!session?.user?.id || !selectedSeasonId) {
       setTeams([]);
       setSelectedTeamId('');
+      setRestoringWorkspace(false);
       return;
     }
     loadTeams(session.user.id, selectedSeasonId);
@@ -739,20 +838,17 @@ function App() {
   useEffect(() => {
     if (!selectedTeamId) return;
     localStorage.setItem(`fieldhockey_statsheet_import_${selectedTeamId}`, JSON.stringify(importedRows));
-  }, [selectedTeamId, importedRows]);
+  }, [importedRows, selectedTeamId]);
 
   async function loadSeasons(userId) {
     setLoadingData(true);
     setStatus('Loading seasons...');
 
-    const { data, error } = await supabase
-      .from('seasons')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('seasons').select('*').eq('user_id', userId).order('created_at', { ascending: false });
 
     if (error) {
       setStatus(`Failed to load seasons: ${error.message}`);
+      setRestoringWorkspace(false);
       setLoadingData(false);
       return;
     }
@@ -760,11 +856,10 @@ function App() {
     const seasonRows = data || [];
     setSeasons(seasonRows);
 
-    const hasSelected = seasonRows.some((season) => season.id === selectedSeasonId);
-    if (!hasSelected) {
-      setSelectedSeasonId(seasonRows[0]?.id || '');
-      setSelectedTeamId('');
-    }
+    const hasSeason = seasonRows.some((season) => season.id === selectedSeasonId);
+    const seasonId = hasSeason ? selectedSeasonId : seasonRows[0]?.id || '';
+    if (!hasSeason) setSelectedSeasonId(seasonId);
+    if (!seasonId) setRestoringWorkspace(false);
 
     setStatus('');
     setLoadingData(false);
@@ -780,16 +875,16 @@ function App() {
 
     if (error) {
       setStatus(`Failed to load teams: ${error.message}`);
+      setRestoringWorkspace(false);
       return;
     }
 
     const teamRows = data || [];
     setTeams(teamRows);
 
-    const hasSelected = teamRows.some((team) => team.id === selectedTeamId);
-    if (!hasSelected) {
-      setSelectedTeamId(teamRows[0]?.id || '');
-    }
+    const hasTeam = teamRows.some((team) => team.id === selectedTeamId);
+    if (!hasTeam) setSelectedTeamId(teamRows[0]?.id || '');
+    setRestoringWorkspace(false);
   }
 
   async function loadTeamResources(userId, teamId) {
@@ -842,7 +937,6 @@ function App() {
     }
 
     setEvents(eventsData || []);
-
     if (!selectedMatchId || !matchRows.some((match) => match.id === selectedMatchId)) {
       setSelectedMatchId(matchRows[0]?.id || '');
     }
@@ -884,7 +978,6 @@ function App() {
     if (!featureDialog || !session?.user?.id) return;
     const subject = featureDialog.subject.trim();
     const message = featureDialog.message.trim();
-
     if (!subject || !message) {
       setFeatureDialog((prev) => (prev ? { ...prev, error: 'Please enter both subject and message.' } : prev));
       return;
@@ -903,9 +996,7 @@ function App() {
     });
 
     if (error) {
-      setFeatureDialog((prev) =>
-        prev ? { ...prev, submitting: false, error: `Could not submit request: ${error.message}` } : prev
-      );
+      setFeatureDialog((prev) => (prev ? { ...prev, submitting: false, error: `Could not submit request: ${error.message}` } : prev));
       return;
     }
 
@@ -916,17 +1007,11 @@ function App() {
   async function createSeason(event) {
     event.preventDefault();
     if (!seasonForm.name.trim() || !session?.user?.id) return;
-
-    const { error } = await supabase.from('seasons').insert({
-      user_id: session.user.id,
-      name: seasonForm.name.trim()
-    });
-
+    const { error } = await supabase.from('seasons').insert({ user_id: session.user.id, name: seasonForm.name.trim() });
     if (error) {
       setStatus(`Failed to create season: ${error.message}`);
       return;
     }
-
     setSeasonForm(EMPTY_FORM);
     await loadSeasons(session.user.id);
   }
@@ -934,50 +1019,34 @@ function App() {
   async function renameSeason(season) {
     if (!session?.user?.id) return;
     const nextName = window.prompt('Rename season', season.name);
-    if (!nextName || !nextName.trim()) return;
-
-    const { error } = await supabase
-      .from('seasons')
-      .update({ name: nextName.trim() })
-      .eq('id', season.id)
-      .eq('user_id', session.user.id);
-
+    if (!nextName?.trim()) return;
+    const { error } = await supabase.from('seasons').update({ name: nextName.trim() }).eq('id', season.id).eq('user_id', session.user.id);
     if (error) {
       setStatus(`Failed to rename season: ${error.message}`);
       return;
     }
-
     await loadSeasons(session.user.id);
   }
 
   async function deleteSeason(seasonId) {
     if (!session?.user?.id) return;
     if (!window.confirm('Delete this season and all linked data?')) return;
-
     const { error } = await supabase.from('seasons').delete().eq('id', seasonId).eq('user_id', session.user.id);
     if (error) {
       setStatus(`Failed to delete season: ${error.message}`);
       return;
     }
-
     await loadSeasons(session.user.id);
   }
 
   async function createTeam(event) {
     event.preventDefault();
     if (!teamForm.name.trim() || !session?.user?.id || !selectedSeasonId) return;
-
-    const { error } = await supabase.from('teams').insert({
-      user_id: session.user.id,
-      season_id: selectedSeasonId,
-      name: teamForm.name.trim()
-    });
-
+    const { error } = await supabase.from('teams').insert({ user_id: session.user.id, season_id: selectedSeasonId, name: teamForm.name.trim() });
     if (error) {
       setStatus(`Failed to create team: ${error.message}`);
       return;
     }
-
     setTeamForm(EMPTY_FORM);
     await loadTeams(session.user.id, selectedSeasonId);
   }
@@ -985,32 +1054,23 @@ function App() {
   async function renameTeam(team) {
     if (!session?.user?.id) return;
     const nextName = window.prompt('Rename team', team.name);
-    if (!nextName || !nextName.trim()) return;
-
-    const { error } = await supabase
-      .from('teams')
-      .update({ name: nextName.trim() })
-      .eq('id', team.id)
-      .eq('user_id', session.user.id);
-
+    if (!nextName?.trim()) return;
+    const { error } = await supabase.from('teams').update({ name: nextName.trim() }).eq('id', team.id).eq('user_id', session.user.id);
     if (error) {
       setStatus(`Failed to rename team: ${error.message}`);
       return;
     }
-
     await loadTeams(session.user.id, selectedSeasonId);
   }
 
   async function deleteTeam(teamId) {
     if (!session?.user?.id) return;
     if (!window.confirm('Delete this team and all linked data?')) return;
-
     const { error } = await supabase.from('teams').delete().eq('id', teamId).eq('user_id', session.user.id);
     if (error) {
       setStatus(`Failed to delete team: ${error.message}`);
       return;
     }
-
     await loadTeams(session.user.id, selectedSeasonId);
   }
 
@@ -1113,13 +1173,11 @@ function App() {
 
   async function deleteMatch(matchId) {
     if (!session?.user?.id || !selectedTeamId) return;
-
     const { error } = await supabase.from('matches').delete().eq('id', matchId).eq('user_id', session.user.id);
     if (error) {
       setStatus(`Failed to delete match: ${error.message}`);
       return;
     }
-
     await loadTeamResources(session.user.id, selectedTeamId);
   }
 
@@ -1179,11 +1237,37 @@ function App() {
     }));
   }
 
+  function exportWorkspaceBackup() {
+    if (!selectedSeason || !selectedTeam) return;
+    const payload = {
+      app: 'fieldhockey-hub',
+      exportedAt: new Date().toISOString(),
+      season: selectedSeason,
+      team: selectedTeam,
+      players,
+      matches,
+      events,
+      importedStatRows: importedRows
+    };
+    const safeSeason = selectedSeason.name.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    const safeTeam = selectedTeam.name.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+    downloadTextFile(
+      `fieldhockey_backup_${safeSeason}_${safeTeam}.json`,
+      JSON.stringify(payload, null, 2),
+      'application/json;charset=utf-8'
+    );
+    setSettings((prev) => ({ ...prev, lastBackupAt: new Date().toISOString() }));
+    setStatus('Workspace backup exported.');
+  }
+
   function exportStatSheetCsv() {
     const headers = [
-      'source',
-      'opponent',
+      'scope',
       'match_date',
+      'opponent',
+      'player_number',
+      'player_name',
+      'events',
       'goals',
       'assists',
       'shots_total',
@@ -1213,11 +1297,14 @@ function App() {
       'discipline_index'
     ];
 
-    const rows = statRows.map((row) =>
+    const rows = playerMatchRows.map((row) =>
       [
-        row.source,
-        row.opponent,
+        analysisScope,
         row.matchDate,
+        row.opponent,
+        row.playerNumber ?? '',
+        row.playerName,
+        row.eventCount,
         row.goals,
         row.assists,
         row.shotsTotal,
@@ -1249,7 +1336,8 @@ function App() {
     );
 
     const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
-    downloadTextFile('fieldhockey_stat_sheet.csv', csv, 'text/csv;charset=utf-8');
+    const scopeLabel = analysisScope === 'match' ? 'match' : 'season';
+    downloadTextFile(`fieldhockey_stat_sheet_player_match_${scopeLabel}.csv`, csv, 'text/csv;charset=utf-8');
   }
 
   function exportStatSheetTemplate() {
@@ -1294,9 +1382,7 @@ function App() {
         setStatus('No valid rows found in import.');
       }
     };
-    reader.onerror = () => {
-      setStatus('Could not read import file.');
-    };
+    reader.onerror = () => setStatus('Could not read import file.');
 
     reader.readAsText(file);
     event.target.value = '';
@@ -1313,52 +1399,67 @@ function App() {
     hiddenImportInputRef.current?.click();
   }
 
+  function onSelectVideo(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    setVideoUrl(URL.createObjectURL(file));
+    setVideoName(file.name);
+  }
+
+  function openAnalyticsPreferences() {
+    if (typeof window !== 'undefined' && typeof window.resetAnalyticsPreferences === 'function') {
+      window.resetAnalyticsPreferences();
+    }
+  }
+
+  function handleSeasonSelect(nextSeasonId) {
+    setSelectedSeasonId(nextSeasonId);
+    setSelectedTeamId('');
+    setSelectedMatchId('');
+    setTeams([]);
+    if (nextSeasonId) {
+      setRestoringWorkspace(true);
+    } else {
+      setRestoringWorkspace(false);
+    }
+  }
+
+  function handleSwitchTeam() {
+    setSelectedSeasonId('');
+    setSelectedTeamId('');
+    setSelectedMatchId('');
+    setRestoringWorkspace(false);
+  }
+
   function renderHome() {
     const activeMatch = matches.find((match) => match.id === selectedMatchId);
 
     return (
       <>
+        {backupReminderDue ? (
+          <section className="panel reminder-panel">
+            <h3>Backup reminder</h3>
+            <p className="muted">Export a workspace backup to avoid data loss and keep an offline copy.</p>
+            <button type="button" className="secondary" onClick={exportWorkspaceBackup}>
+              Export backup now
+            </button>
+          </section>
+        ) : null}
+
         <section className="panel">
           <div className="section-header">
             <h2>Field Hockey Hub</h2>
-            <p className="muted">
-              Fast match logging + stat sheet output. Use Event Tracker live, then review season KPIs in Stat Sheet and Analytics.
-            </p>
+            <p className="muted">Fast match logging + stat sheet output. Use Event Tracker live, then review season KPIs in Stat Sheet and Analytics.</p>
           </div>
 
           <div className="kpi-grid">
-            <article className="kpi-card">
-              <StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} />
-              <strong>{analyticsSummary.goals}</strong>
-            </article>
-            <article className="kpi-card">
-              <StatLabel
-                label="Shots On Target"
-                tooltip={statTooltip('shots_on_target_total')}
-                enabled={settings.showStatTooltips}
-              />
-              <strong>{analyticsSummary.shotsOnTargetTotal}</strong>
-            </article>
-            <article className="kpi-card">
-              <StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} />
-              <strong>{analyticsSummary.shotAccuracy}%</strong>
-            </article>
-            <article className="kpi-card">
-              <StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} />
-              <strong>{analyticsSummary.pcConversion}%</strong>
-            </article>
-            <article className="kpi-card">
-              <StatLabel
-                label="Turnover Balance"
-                tooltip={statTooltip('turnover_balance')}
-                enabled={settings.showStatTooltips}
-              />
-              <strong>{analyticsSummary.turnoverBalance}</strong>
-            </article>
-            <article className="kpi-card">
-              <StatLabel label="Discipline" tooltip={statTooltip('discipline')} enabled={settings.showStatTooltips} />
-              <strong>{analyticsSummary.discipline}</strong>
-            </article>
+            <article className="kpi-card"><StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.goals}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shots On Target" tooltip={statTooltip('shots_on_target_total')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.shotsOnTargetTotal}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.shotAccuracy}%</strong></article>
+            <article className="kpi-card"><StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.pcConversion}%</strong></article>
+            <article className="kpi-card"><StatLabel label="Turnover Balance" tooltip={statTooltip('turnover_balance')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.turnoverBalance}</strong></article>
+            <article className="kpi-card"><StatLabel label="Discipline" tooltip={statTooltip('discipline')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.discipline}</strong></article>
           </div>
         </section>
 
@@ -1372,16 +1473,18 @@ function App() {
             <p className="muted">Matches: {matches.length}</p>
             <p className="muted">Events: {events.length}</p>
           </article>
-          <article>
-            <h3>Quick Start</h3>
-            <ol>
-              <li>Create/select a season and team from the top bar.</li>
-              <li>Add players in Roster.</li>
-              <li>Create match in Matches and select it.</li>
-              <li>Log events in Event Tracker during the match.</li>
-              <li>Open Stat Sheet for match/season output and export.</li>
-            </ol>
-          </article>
+          {settings.showHubTips ? (
+            <article>
+              <h3>Quick Start</h3>
+              <ol>
+                <li>Create/select a season and team.</li>
+                <li>Add players in Roster.</li>
+                <li>Create a match in Matches and select it.</li>
+                <li>Track events in Event Tracker during match.</li>
+                <li>Use Stat Sheet for season output and exports.</li>
+              </ol>
+            </article>
+          ) : null}
         </section>
       </>
     );
@@ -1396,29 +1499,15 @@ function App() {
         </div>
 
         <form className="inline-form" onSubmit={createMatch}>
-          <input
-            placeholder="Opponent"
-            value={matchForm.opponent}
-            onChange={(event) => setMatchForm((prev) => ({ ...prev, opponent: event.target.value }))}
-            required
-          />
-          <input
-            type="date"
-            value={matchForm.match_date}
-            onChange={(event) => setMatchForm((prev) => ({ ...prev, match_date: event.target.value }))}
-          />
+          <input placeholder="Opponent" value={matchForm.opponent} onChange={(event) => setMatchForm((prev) => ({ ...prev, opponent: event.target.value }))} required />
+          <input type="date" value={matchForm.match_date} onChange={(event) => setMatchForm((prev) => ({ ...prev, match_date: event.target.value }))} />
           <button type="submit">Add Match</button>
         </form>
 
         <div className="table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>Opponent</th>
-                <th>Date</th>
-                <th>Events</th>
-                <th>Action</th>
-              </tr>
+              <tr><th>Opponent</th><th>Date</th><th>Events</th><th>Action</th></tr>
             </thead>
             <tbody>
               {matches.map((match) => {
@@ -1429,12 +1518,8 @@ function App() {
                     <td>{match.match_date || '-'}</td>
                     <td>{eventCount}</td>
                     <td className="row-actions">
-                      <button type="button" className="secondary" onClick={() => setSelectedMatchId(match.id)}>
-                        Select
-                      </button>
-                      <button type="button" className="danger" onClick={() => deleteMatch(match.id)}>
-                        Delete
-                      </button>
+                      <button type="button" className="secondary" onClick={() => setSelectedMatchId(match.id)}>Select</button>
+                      <button type="button" className="danger" onClick={() => deleteMatch(match.id)}>Delete</button>
                     </td>
                   </tr>
                 );
@@ -1455,90 +1540,35 @@ function App() {
         </div>
 
         <form className="inline-form" onSubmit={createPlayer}>
-          <input
-            placeholder="Player name"
-            value={playerForm.name}
-            onChange={(event) => setPlayerForm((prev) => ({ ...prev, name: event.target.value }))}
-            required
-          />
-          <input
-            type="number"
-            placeholder="Number"
-            value={playerForm.number}
-            onChange={(event) => setPlayerForm((prev) => ({ ...prev, number: event.target.value }))}
-          />
-          <input
-            placeholder="Position"
-            value={playerForm.position}
-            onChange={(event) => setPlayerForm((prev) => ({ ...prev, position: event.target.value }))}
-          />
+          <input placeholder="Player name" value={playerForm.name} onChange={(event) => setPlayerForm((prev) => ({ ...prev, name: event.target.value }))} required />
+          <input type="number" placeholder="Number" value={playerForm.number} onChange={(event) => setPlayerForm((prev) => ({ ...prev, number: event.target.value }))} />
+          <input placeholder="Position" value={playerForm.position} onChange={(event) => setPlayerForm((prev) => ({ ...prev, position: event.target.value }))} />
           <button type="submit">Add Player</button>
         </form>
 
         <div className="table-wrap">
           <table>
             <thead>
-              <tr>
-                <th>#</th>
-                <th>Name</th>
-                <th>Position</th>
-                <th>Actions</th>
-              </tr>
+              <tr><th>#</th><th>Name</th><th>Position</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {players.map((player) => {
                 const isEditing = editingPlayerId === player.id;
                 return (
                   <tr key={player.id}>
-                    <td>
-                      {isEditing ? (
-                        <input
-                          type="number"
-                          value={editingPlayerForm.number}
-                          onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, number: event.target.value }))}
-                        />
-                      ) : (
-                        player.number ?? '-'
-                      )}
-                    </td>
-                    <td>
-                      {isEditing ? (
-                        <input
-                          value={editingPlayerForm.name}
-                          onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, name: event.target.value }))}
-                        />
-                      ) : (
-                        player.name
-                      )}
-                    </td>
-                    <td>
-                      {isEditing ? (
-                        <input
-                          value={editingPlayerForm.position}
-                          onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, position: event.target.value }))}
-                        />
-                      ) : (
-                        player.position || '-'
-                      )}
-                    </td>
+                    <td>{isEditing ? <input type="number" value={editingPlayerForm.number} onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, number: event.target.value }))} /> : player.number ?? '-'}</td>
+                    <td>{isEditing ? <input value={editingPlayerForm.name} onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, name: event.target.value }))} /> : player.name}</td>
+                    <td>{isEditing ? <input value={editingPlayerForm.position} onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, position: event.target.value }))} /> : player.position || '-'}</td>
                     <td className="row-actions">
                       {isEditing ? (
                         <>
-                          <button type="button" className="secondary" onClick={() => savePlayer(player.id)}>
-                            Save
-                          </button>
-                          <button type="button" className="danger" onClick={cancelEditPlayer}>
-                            Cancel
-                          </button>
+                          <button type="button" className="secondary" onClick={() => savePlayer(player.id)}>Save</button>
+                          <button type="button" className="danger" onClick={cancelEditPlayer}>Cancel</button>
                         </>
                       ) : (
                         <>
-                          <button type="button" className="secondary" onClick={() => startEditPlayer(player)}>
-                            Edit
-                          </button>
-                          <button type="button" className="danger" onClick={() => deletePlayer(player.id)}>
-                            Delete
-                          </button>
+                          <button type="button" className="secondary" onClick={() => startEditPlayer(player)}>Edit</button>
+                          <button type="button" className="danger" onClick={() => deletePlayer(player.id)}>Delete</button>
                         </>
                       )}
                     </td>
@@ -1568,9 +1598,7 @@ function App() {
             <select value={selectedMatchId} onChange={(event) => setSelectedMatchId(event.target.value)}>
               {!matches.length ? <option value="">No matches yet</option> : null}
               {matches.map((match) => (
-                <option key={match.id} value={match.id}>
-                  {match.opponent} {match.match_date ? `(${match.match_date})` : ''}
-                </option>
+                <option key={match.id} value={match.id}>{match.opponent} {match.match_date ? `(${match.match_date})` : ''}</option>
               ))}
             </select>
           </label>
@@ -1589,47 +1617,26 @@ function App() {
             Time Left
             <div className="clock-input split">
               <select value={clockParts.minutes} onChange={(event) => setClock(`${event.target.value}:${clockParts.seconds}`)}>
-                {minuteOptions.map((minute) => (
-                  <option key={minute} value={minute}>
-                    {minute}
-                  </option>
-                ))}
+                {minuteOptions.map((minute) => <option key={minute} value={minute}>{minute}</option>)}
               </select>
               <span>:</span>
               <select value={clockParts.seconds} onChange={(event) => setClock(`${clockParts.minutes}:${event.target.value}`)}>
-                {secondOptions.map((second) => (
-                  <option key={second} value={second}>
-                    {second}
-                  </option>
-                ))}
+                {secondOptions.map((second) => <option key={second} value={second}>{second}</option>)}
               </select>
             </div>
           </label>
 
           <div className="time-stepper" aria-label="Adjust time left">
-            <button type="button" onClick={() => changeClockBy(10)}>
-              +10s
-            </button>
-            <button type="button" onClick={() => changeClockBy(1)}>
-              +1s
-            </button>
-            <button type="button" onClick={() => changeClockBy(-1)}>
-              -1s
-            </button>
-            <button type="button" onClick={() => changeClockBy(-10)}>
-              -10s
-            </button>
+            <button type="button" onClick={() => changeClockBy(10)}>+10s</button>
+            <button type="button" onClick={() => changeClockBy(1)}>+1s</button>
+            <button type="button" onClick={() => changeClockBy(-1)}>-1s</button>
+            <button type="button" onClick={() => changeClockBy(-10)}>-10s</button>
           </div>
         </div>
 
         <div className="clock-presets compact">
           {clockPresets.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => setClock(preset)}
-              className={clock === preset ? 'preset active' : 'preset'}
-            >
+            <button key={preset} type="button" onClick={() => setClock(preset)} className={clock === preset ? 'preset active' : 'preset'}>
               {preset}
             </button>
           ))}
@@ -1640,12 +1647,7 @@ function App() {
             <h3>Select Player</h3>
             <div className="player-strip">
               {players.map((player) => (
-                <button
-                  key={player.id}
-                  type="button"
-                  onClick={() => setSelectedPlayerId(player.id)}
-                  className={`player-chip ${selectedPlayerId === player.id ? 'selected' : ''}`}
-                >
+                <button key={player.id} type="button" onClick={() => setSelectedPlayerId(player.id)} className={`player-chip ${selectedPlayerId === player.id ? 'selected' : ''}`}>
                   #{player.number ?? '-'} {player.name}
                 </button>
               ))}
@@ -1656,25 +1658,14 @@ function App() {
             <h3>Log Action</h3>
             <div className="action-group-tabs">
               {ACTION_GROUPS.map((group) => (
-                <button
-                  key={group.key}
-                  type="button"
-                  className={activeActionGroup.key === group.key ? 'active' : ''}
-                  onClick={() => setActiveActionGroupKey(group.key)}
-                >
+                <button key={group.key} type="button" className={activeActionGroup.key === group.key ? 'active' : ''} onClick={() => setActiveActionGroupKey(group.key)}>
                   {group.title}
                 </button>
               ))}
             </div>
             <div className="action-grid mobile-dense">
               {activeActionGroup.actions.map((action) => (
-                <button
-                  key={action.key}
-                  type="button"
-                  className={`action-button ${action.className}`}
-                  title={settings.showStatTooltips ? action.tooltip : ''}
-                  onClick={() => addEvent(action.key)}
-                >
+                <button key={action.key} type="button" className={`action-button ${action.className}`} title={settings.showStatTooltips ? action.tooltip : ''} onClick={() => addEvent(action.key)}>
                   {action.label}
                 </button>
               ))}
@@ -1687,27 +1678,18 @@ function App() {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Player</th>
-                  <th>Action</th>
-                  <th></th>
-                </tr>
+                <tr><th>Time</th><th>Player</th><th>Action</th><th /></tr>
               </thead>
               <tbody>
                 {selectedMatchEvents.slice(0, 30).map((event) => {
                   const player = players.find((entry) => entry.id === event.player_id);
                   return (
                     <tr key={event.id}>
-                      <td>
-                        Q{event.period} - {event.time_left || '-'}
-                      </td>
+                      <td>Q{event.period} - {event.time_left || '-'}</td>
                       <td>{player ? `#${player.number ?? '-'} ${player.name}` : '-'}</td>
                       <td>{event.event_type.replaceAll('_', ' ')}</td>
                       <td className="row-actions">
-                        <button type="button" className="danger" onClick={() => deleteEvent(event.id)}>
-                          Delete
-                        </button>
+                        <button type="button" className="danger" onClick={() => deleteEvent(event.id)}>Delete</button>
                       </td>
                     </tr>
                   );
@@ -1721,49 +1703,106 @@ function App() {
   }
 
   function renderStatSheet() {
+    const selectedMatch = matches.find((match) => match.id === selectedMatchId);
     return (
       <section className="panel">
         <div className="section-header">
           <h2>Stat Sheet</h2>
-          <p className="muted">Primary output from scoring data, with optional CSV imports for external sheets.</p>
+          <p className="muted">Primary output from scoring data: per player, per match rows.</p>
         </div>
 
         <div className="inline-actions">
           <label>
-            Source
+            Scope
+            <select value={analysisScope} onChange={(event) => setAnalysisScope(event.target.value)}>
+              <option value="match">Selected match</option>
+              <option value="season">Selected team + season</option>
+            </select>
+          </label>
+          {analysisScope === 'match' ? (
+            <label>
+              Match
+              <select value={selectedMatchId} onChange={(event) => setSelectedMatchId(event.target.value)}>
+                {matches.map((match) => (
+                  <option key={match.id} value={match.id}>
+                    {match.opponent} {match.match_date ? `(${match.match_date})` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            Legacy totals source
             <select value={statSheetSource} onChange={(event) => setStatSheetSource(event.target.value)}>
               <option value="all">Generated + Imported</option>
               <option value="generated">Generated only</option>
               <option value="imported">Imported only</option>
             </select>
           </label>
-          <button type="button" className="secondary" onClick={exportStatSheetCsv}>
-            Export CSV
-          </button>
-          <button type="button" className="secondary" onClick={exportStatSheetTemplate}>
-            Download Template
-          </button>
-          <button type="button" className="secondary" onClick={openImportDialog}>
-            Import CSV
-          </button>
-          <button type="button" className="danger" onClick={clearImportedRows}>
-            Clear Imports
-          </button>
+          <button type="button" className="secondary" onClick={exportStatSheetCsv}>Export CSV</button>
+          <button type="button" className="secondary" onClick={exportStatSheetTemplate}>Download Template</button>
+          <button type="button" className="secondary" onClick={openImportDialog}>Import CSV</button>
+          <button type="button" className="danger" onClick={clearImportedRows}>Clear Imports</button>
           <input ref={hiddenImportInputRef} type="file" accept=".csv,text/csv" onChange={onImportFileChange} hidden />
+        </div>
+
+        <div className="kpi-grid">
+          <article className="kpi-card"><span>Player-Match Rows</span><strong>{playerMatchRows.length}</strong></article>
+          <article className="kpi-card"><StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} /><strong>{playerMatchSummary.goals}</strong></article>
+          <article className="kpi-card"><StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} /><strong>{playerMatchSummary.shotAccuracy}%</strong></article>
+          <article className="kpi-card"><StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} /><strong>{playerMatchSummary.pcConversion}%</strong></article>
+          <article className="kpi-card"><StatLabel label="Turnover Balance" tooltip={statTooltip('turnover_balance')} enabled={settings.showStatTooltips} /><strong>{playerMatchSummary.turnoverBalance}</strong></article>
+          <article className="kpi-card"><StatLabel label="Discipline" tooltip={statTooltip('discipline')} enabled={settings.showStatTooltips} /><strong>{playerMatchSummary.discipline}</strong></article>
+        </div>
+
+        {analysisScope === 'match' && selectedMatch ? (
+          <p className="muted small">
+            Showing rows for: <strong>{selectedMatch.opponent}</strong> {selectedMatch.match_date ? `(${selectedMatch.match_date})` : ''}
+          </p>
+        ) : null}
+
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Match</th><th>#</th><th>Player</th><th>Events</th><th>G</th><th>A</th><th>Shots</th><th>SOT</th><th>Acc%</th><th>PC Won</th><th>PC G</th><th>PC%</th><th>TO +/-</th><th>Cards</th></tr>
+            </thead>
+            <tbody>
+              {playerMatchRows.map((row) => (
+                <tr key={row.rowId}>
+                  <td>{row.matchDate || '-'}</td>
+                  <td>{row.opponent}</td>
+                  <td>{row.playerNumber ?? '-'}</td>
+                  <td>{row.playerName}</td>
+                  <td>{row.eventCount}</td>
+                  <td>{row.goals}</td>
+                  <td>{row.assists}</td>
+                  <td>{row.shotsTotal}</td>
+                  <td>{row.shotsOnTargetTotal}</td>
+                  <td>{row.shotAccuracy}%</td>
+                  <td>{row.pcWon}</td>
+                  <td>{row.pcGoals}</td>
+                  <td>{row.pcConversion}%</td>
+                  <td>{row.turnoverBalance}</td>
+                  <td>{row.discipline}</td>
+                </tr>
+              ))}
+              {!playerMatchRows.length ? (
+                <tr>
+                  <td colSpan={15} className="muted">No player-match rows available. Add events in Event Tracker first.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
 
         {importReport ? (
           <div className="import-report">
             <h3>Import report</h3>
-            <p className="muted">
-              Accepted {importReport.accepted} / {importReport.total} rows.
-            </p>
+            <p className="muted">Accepted {importReport.accepted} / {importReport.total} rows.</p>
             {importReport.skipped.length ? (
               <ul>
                 {importReport.skipped.slice(0, 10).map((row) => (
-                  <li key={`${row.line}_${row.reason}`}>
-                    Line {row.line}: {row.reason}
-                  </li>
+                  <li key={`${row.line}_${row.reason}`}>Line {row.line}: {row.reason}</li>
                 ))}
               </ul>
             ) : (
@@ -1772,77 +1811,40 @@ function App() {
           </div>
         ) : null}
 
-        <div className="kpi-grid">
-          <article className="kpi-card">
-            <span>Matches</span>
-            <strong>{statSummary.matches}</strong>
-          </article>
-          <article className="kpi-card">
-            <StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} />
-            <strong>{statSummary.goals}</strong>
-          </article>
-          <article className="kpi-card">
-            <StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} />
-            <strong>{statSummary.shotAccuracy}%</strong>
-          </article>
-          <article className="kpi-card">
-            <StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} />
-            <strong>{statSummary.pcConversion}%</strong>
-          </article>
-          <article className="kpi-card">
-            <StatLabel
-              label="Turnover Balance"
-              tooltip={statTooltip('turnover_balance')}
-              enabled={settings.showStatTooltips}
-            />
-            <strong>{statSummary.turnoverBalance}</strong>
-          </article>
-          <article className="kpi-card">
-            <StatLabel label="Discipline" tooltip={statTooltip('discipline')} enabled={settings.showStatTooltips} />
-            <strong>{statSummary.discipline}</strong>
-          </article>
-        </div>
-
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Source</th>
-                <th>Opponent</th>
-                <th>Date</th>
-                <th>G</th>
-                <th>S</th>
-                <th>SOT</th>
-                <th>Acc%</th>
-                <th>PC Won</th>
-                <th>PC G</th>
-                <th>PC%</th>
-                <th>TO +/-</th>
-                <th>Cards</th>
-              </tr>
-            </thead>
-            <tbody>
-              {statRows.map((row) => (
-                <tr key={row.rowId}>
-                  <td>
-                    <span className={`source-badge ${row.source}`}>{row.source}</span>
-                  </td>
-                  <td>{row.opponent}</td>
-                  <td>{row.matchDate || '-'}</td>
-                  <td>{row.goals ?? '-'}</td>
-                  <td>{row.shotsTotal ?? '-'}</td>
-                  <td>{row.shotsOnTargetTotal ?? '-'}</td>
-                  <td>{row.shotAccuracy ?? '-'}%</td>
-                  <td>{row.pcWon ?? '-'}</td>
-                  <td>{row.pcGoals ?? '-'}</td>
-                  <td>{row.pcConversion ?? '-'}%</td>
-                  <td>{row.turnoverBalance ?? '-'}</td>
-                  <td>{row.discipline ?? '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <details className="event-log">
+          <summary>Legacy team/match totals ({statRows.length})</summary>
+          <div className="kpi-grid">
+            <article className="kpi-card"><span>Matches</span><strong>{statSummary.matches}</strong></article>
+            <article className="kpi-card"><StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} /><strong>{statSummary.goals}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} /><strong>{statSummary.shotAccuracy}%</strong></article>
+            <article className="kpi-card"><StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} /><strong>{statSummary.pcConversion}%</strong></article>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Source</th><th>Opponent</th><th>Date</th><th>G</th><th>S</th><th>SOT</th><th>Acc%</th><th>PC Won</th><th>PC G</th><th>PC%</th><th>TO +/-</th><th>Cards</th></tr>
+              </thead>
+              <tbody>
+                {statRows.map((row) => (
+                  <tr key={row.rowId}>
+                    <td><span className={`source-badge ${row.source}`}>{row.source}</span></td>
+                    <td>{row.opponent}</td>
+                    <td>{row.matchDate || '-'}</td>
+                    <td>{row.goals ?? '-'}</td>
+                    <td>{row.shotsTotal ?? '-'}</td>
+                    <td>{row.shotsOnTargetTotal ?? '-'}</td>
+                    <td>{row.shotAccuracy ?? '-'}%</td>
+                    <td>{row.pcWon ?? '-'}</td>
+                    <td>{row.pcGoals ?? '-'}</td>
+                    <td>{row.pcConversion ?? '-'}%</td>
+                    <td>{row.turnoverBalance ?? '-'}</td>
+                    <td>{row.discipline ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </section>
     );
   }
@@ -1881,52 +1883,86 @@ function App() {
           </div>
         </section>
 
-        <section className="panel two-col">
-          <article>
-            <h3>Match trends</h3>
-            <div className="trend-list">
-              {matchRows.map((row) => (
-                <article key={row.rowId} className="trend-row">
-                  <div>
-                    <p className="trend-title">{row.opponent}</p>
-                    <p className="muted small">{row.matchDate || 'No date'}</p>
-                  </div>
-                  <div className="trend-metrics">
-                    <span>G {row.goals}</span>
-                    <span>S {row.shotsTotal}</span>
-                    <span>SOT {row.shotsOnTargetTotal}</span>
-                    <span>PC% {row.pcConversion}%</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </article>
+        <section className="panel">
+          <h3>Match trends</h3>
+          <div className="trend-list">
+            {matchRows.map((row) => (
+              <article key={row.rowId} className="trend-row">
+                <div>
+                  <p className="trend-title">{row.opponent}</p>
+                  <p className="muted small">{row.matchDate || 'No date'}</p>
+                </div>
+                <div className="trend-metrics">
+                  <span>G {row.goals}</span>
+                  <span>S {row.shotsTotal}</span>
+                  <span>SOT {row.shotsOnTargetTotal}</span>
+                  <span>PC% {row.pcConversion}%</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </>
+    );
+  }
 
-          <article>
-            <h3>Player report card</h3>
-            <select value={reportPlayerId} onChange={(event) => setReportPlayerId(event.target.value)}>
-              <option value="">Select player</option>
-              {players.map((player) => (
-                <option key={player.id} value={player.id}>
-                  #{player.number ?? '-'} {player.name}
-                </option>
-              ))}
-            </select>
-            {playerReport ? (
-              <div className="report-grid">
-                <p><strong>Player:</strong> #{playerReport.player.number ?? '-'} {playerReport.player.name}</p>
-                <p><strong>Events:</strong> {playerReport.events}</p>
-                <p><strong>Contributions:</strong> {playerReport.contributions}</p>
-                <p><strong>Shots / SOT:</strong> {playerReport.shotsTotal} / {playerReport.shotsOnTargetTotal}</p>
-                <p><strong>Shot Accuracy:</strong> {playerReport.shotAccuracy}%</p>
-                <p><strong>Circle Entries:</strong> {playerReport.circleEntries}</p>
-                <p><strong>Tackles + Interceptions:</strong> {playerReport.tacklesWon + playerReport.interceptions}</p>
-                <p><strong>Discipline:</strong> {playerReport.discipline}</p>
-              </div>
-            ) : (
-              <p className="muted">No player selected.</p>
-            )}
-          </article>
+  function renderPlayers() {
+    return (
+      <>
+        <section className="panel">
+          <div className="section-header inline-between">
+            <div>
+              <h2>Players</h2>
+              <p className="muted">Player report cards and contribution comparison for the selected analysis scope.</p>
+            </div>
+            <label>
+              Scope
+              <select value={analysisScope} onChange={(event) => setAnalysisScope(event.target.value)}>
+                <option value="match">Selected match</option>
+                <option value="season">Selected team + season</option>
+              </select>
+            </label>
+          </div>
+
+          <h3>Player report card</h3>
+          <select value={reportPlayerId} onChange={(event) => setReportPlayerId(event.target.value)}>
+            <option value="">Select player</option>
+            {players.map((player) => (
+              <option key={player.id} value={player.id}>
+                #{player.number ?? '-'} {player.name}
+              </option>
+            ))}
+          </select>
+          {playerReport ? (
+            <div className="report-grid">
+              <p>
+                <strong>Player:</strong> #{playerReport.player.number ?? '-'} {playerReport.player.name}
+              </p>
+              <p>
+                <strong>Events:</strong> {playerReport.events}
+              </p>
+              <p>
+                <strong>Contributions:</strong> {playerReport.contributions}
+              </p>
+              <p>
+                <strong>Shots / SOT:</strong> {playerReport.shotsTotal} / {playerReport.shotsOnTargetTotal}
+              </p>
+              <p>
+                <strong>Shot Accuracy:</strong> {playerReport.shotAccuracy}%
+              </p>
+              <p>
+                <strong>Circle Entries:</strong> {playerReport.circleEntries}
+              </p>
+              <p>
+                <strong>Tackles + Interceptions:</strong> {playerReport.tacklesWon + playerReport.interceptions}
+              </p>
+              <p>
+                <strong>Discipline:</strong> {playerReport.discipline}
+              </p>
+            </div>
+          ) : (
+            <p className="muted">No player selected.</p>
+          )}
         </section>
 
         <section className="panel">
@@ -1960,6 +1996,55 @@ function App() {
     );
   }
 
+  function renderVideo() {
+    return (
+      <section className="panel">
+        <h2>Video</h2>
+        <p className="muted">Local video review module (no upload to Supabase).</p>
+        <div className="inline-actions">
+          <input type="file" accept="video/*" onChange={onSelectVideo} />
+          <button type="button" className="secondary" onClick={() => videoRef.current?.pause()}>
+            Pause
+          </button>
+          <button type="button" className="secondary" onClick={() => videoRef.current?.play()}>
+            Play
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              if (!videoRef.current) return;
+              videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 5);
+            }}
+          >
+            -5s
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              if (!videoRef.current) return;
+              videoRef.current.currentTime = Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + 5);
+            }}
+          >
+            +5s
+          </button>
+        </div>
+        <p className="muted">{videoName || 'No video selected.'}</p>
+        {videoUrl ? <video ref={videoRef} className="video-player" controls src={videoUrl} /> : null}
+      </section>
+    );
+  }
+
+  function renderPossession() {
+    return (
+      <section className="panel">
+        <h2>Possession</h2>
+        <p className="muted">Advanced analysis placeholder. Next step is full possession-mapping parity like waterpolo.</p>
+      </section>
+    );
+  }
+
   function renderHelp() {
     return (
       <section className="panel">
@@ -1970,35 +2055,19 @@ function App() {
           <article>
             <h3>Getting started</h3>
             <ol>
-              <li>Select or create season + team in the top bar.</li>
-              <li>Build roster in Roster.</li>
-              <li>Create a match in Matches and select it.</li>
-              <li>Track events in Event Tracker (live).</li>
-              <li>Open Stat Sheet for match/season output and export/import.</li>
+              <li>Select/create season and team.</li>
+              <li>Add players in Roster.</li>
+              <li>Create and select match in Matches.</li>
+              <li>Track actions in Event Tracker.</li>
+              <li>Review Stat Sheet and Analytics.</li>
             </ol>
           </article>
           <article>
             <h3>Magic link login</h3>
-            <p className="muted">You log in with Supabase email magic links.</p>
             <p className="muted">Sender (default): <code>no-reply@mail.app.supabase.io</code></p>
-            <p className="muted">Subject often includes: <code>Confirm Your Signup</code> or magic link confirmation.</p>
-            <p className="muted">If you do not see it, check spam/junk folder.</p>
+            <p className="muted">Subject usually includes: <code>Confirm Your Signup</code></p>
+            <p className="muted">Check spam folder if not received.</p>
           </article>
-        </div>
-
-        <h3>Action legend</h3>
-        <div className="legend-grid">
-          {ACTION_GROUPS.flatMap((group) =>
-            group.actions.map((action) => (
-              <div key={action.key} className="legend-item">
-                <span className={`legend-dot ${action.className}`} />
-                <div>
-                  <strong>{action.label}</strong>
-                  <p>{action.tooltip}</p>
-                </div>
-              </div>
-            ))
-          )}
         </div>
       </section>
     );
@@ -2008,15 +2077,13 @@ function App() {
     return (
       <section className="panel">
         <h2>Privacy</h2>
-        <p className="muted">
-          This app stores account/workspace data in Supabase so your seasons, teams, players, matches, and events stay available across devices.
-        </p>
+        <p className="muted">Data is stored in Supabase per user and team workspace.</p>
         <ul>
-          <li>Authentication uses email magic links via Supabase Auth.</li>
-          <li>Feature requests are stored in Supabase and linked to your user id.</li>
-          <li>Imported stat sheet rows are stored in your browser (local storage), per team.</li>
-          <li>Analytics (GA4) only starts after explicit consent through the banner.</li>
-          <li>Questions: info@paulzuiderduin.com</li>
+          <li>Auth via magic link.</li>
+          <li>Feature requests stored in Supabase.</li>
+          <li>Imported stat rows stored in browser local storage.</li>
+          <li>GA4 starts only after consent.</li>
+          <li>Contact: info@paulzuiderduin.com</li>
         </ul>
       </section>
     );
@@ -2026,18 +2093,12 @@ function App() {
     return (
       <section className="panel">
         <h2>Changelog</h2>
-        <div className="changelog-list">
-          <article>
-            <h3>Current update</h3>
-            <ul>
-              <li>Stat Sheet module added with CSV export and import report panel.</li>
-              <li>Event Tracker redesigned for faster live usage (compact mobile-first layout).</li>
-              <li>Workspace state now persists on refresh (module, season, team, match, scope).</li>
-              <li>Help, privacy, and changelog modules added for product parity with Waterpolo Hub.</li>
-              <li>Feature request modal now includes direct support email fallback.</li>
-            </ul>
-          </article>
-        </div>
+        <ul>
+          <li>Hub parity pass: advanced modules, sidebar collapse, mobile nav, utility dock.</li>
+          <li>Workspace selection flow and switch-team flow aligned with waterpolo.</li>
+          <li>Backup export added in Settings.</li>
+          <li>Scoring/stat-sheet/analytics parity maintained.</li>
+        </ul>
       </section>
     );
   }
@@ -2047,7 +2108,7 @@ function App() {
       <section className="panel">
         <div className="section-header">
           <h2>Settings</h2>
-          <p className="muted">Control module visibility, tooltips, and defaults.</p>
+          <p className="muted">Control module visibility, UX preferences, and backups.</p>
         </div>
 
         <div className="settings-grid">
@@ -2069,57 +2130,55 @@ function App() {
           </article>
 
           <article>
+            <h3>Workspace Preferences</h3>
+            <label className="toggle-item">
+              <input type="checkbox" checked={settings.rememberLastModule} onChange={(event) => setSettings((prev) => ({ ...prev, rememberLastModule: event.target.checked }))} />
+              <span>Remember last module on refresh</span>
+            </label>
+            <label className="toggle-item">
+              <input type="checkbox" checked={settings.showHubTips} onChange={(event) => setSettings((prev) => ({ ...prev, showHubTips: event.target.checked }))} />
+              <span>Show dashboard tips</span>
+            </label>
+            <label className="toggle-item">
+              <input type="checkbox" checked={settings.showAdvancedModules} onChange={(event) => setSettings((prev) => ({ ...prev, showAdvancedModules: event.target.checked }))} />
+              <span>Show advanced modules</span>
+            </label>
+            <label className="toggle-item">
+              <input type="checkbox" checked={settings.showBackupReminder} onChange={(event) => setSettings((prev) => ({ ...prev, showBackupReminder: event.target.checked }))} />
+              <span>Show backup reminder</span>
+            </label>
+            <label className="toggle-item">
+              <input type="checkbox" checked={settings.showStatTooltips} onChange={(event) => setSettings((prev) => ({ ...prev, showStatTooltips: event.target.checked }))} />
+              <span>Show tooltips</span>
+            </label>
+          </article>
+
+          <article>
             <h3>Tracker Defaults</h3>
             <label className="stacked-label">
               Quarter Length (minutes)
-              <select
-                value={settings.quarterLength}
-                onChange={(event) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    quarterLength: Number(event.target.value)
-                  }))
-                }
-              >
+              <select value={settings.quarterLength} onChange={(event) => setSettings((prev) => ({ ...prev, quarterLength: Number(event.target.value) }))}>
                 <option value={10}>10</option>
                 <option value={12}>12</option>
                 <option value={15}>15</option>
               </select>
             </label>
-
             <label className="stacked-label">
               Analytics default scope
-              <select
-                value={settings.defaultAnalysisScope}
-                onChange={(event) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    defaultAnalysisScope: event.target.value
-                  }))
-                }
-              >
+              <select value={settings.defaultAnalysisScope} onChange={(event) => setSettings((prev) => ({ ...prev, defaultAnalysisScope: event.target.value }))}>
                 <option value="match">Selected match</option>
                 <option value="season">Selected team + season</option>
               </select>
             </label>
-
-            <label className="toggle-item">
-              <input
-                type="checkbox"
-                checked={settings.showStatTooltips}
-                onChange={(event) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    showStatTooltips: event.target.checked
-                  }))
-                }
-              />
-              <span>Show tooltips</span>
-            </label>
+            <div className="inline-meta-list">
+              <button type="button" className="secondary" onClick={exportWorkspaceBackup}>Export backup</button>
+              <button type="button" className="secondary" onClick={openAnalyticsPreferences}>Analytics preferences</button>
+            </div>
+            <p className="muted">Last backup: {settings.lastBackupAt ? new Date(settings.lastBackupAt).toLocaleString() : 'Never'}</p>
 
             <button
               type="button"
-              className="secondary"
+              className="danger"
               onClick={() => {
                 setSettings(DEFAULT_SETTINGS);
                 setPeriod(1);
@@ -2135,24 +2194,117 @@ function App() {
     );
   }
 
+  function renderWorkspaceSetup() {
+    const teamsForSeason = teams;
+    return (
+      <div className="setup-layout">
+        <section className="panel hero-panel">
+          <h1>Seasons & Teams</h1>
+          <p className="muted">Select a season and team, or create new folders.</p>
+        </section>
+
+        <div className="setup-grid">
+          <section className="panel">
+            <h2>Seasons</h2>
+            <div className="list-stack">
+              {seasons.map((season) => (
+                <button
+                  key={season.id}
+                  type="button"
+                  className={`list-item ${selectedSeasonId === season.id ? 'active' : ''}`}
+                  onClick={() => handleSeasonSelect(season.id)}
+                >
+                  <span>{season.name}</span>
+                  <span className="row-actions">
+                    <button type="button" className="secondary" onClick={(event) => { event.stopPropagation(); renameSeason(season); }}>
+                      Rename
+                    </button>
+                    <button type="button" className="danger" onClick={(event) => { event.stopPropagation(); deleteSeason(season.id); }}>
+                      Delete
+                    </button>
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <form className="inline-form" onSubmit={createSeason}>
+              <input placeholder="New season" value={seasonForm.name} onChange={(event) => setSeasonForm({ name: event.target.value })} />
+              <button type="submit">+ Season</button>
+            </form>
+          </section>
+
+          <section className="panel">
+            <h2>Teams</h2>
+            {!selectedSeasonId ? <p className="muted">Select a season first.</p> : null}
+            <div className="list-stack">
+              {teamsForSeason.map((team) => (
+                <button
+                  key={team.id}
+                  type="button"
+                  className={`list-item ${selectedTeamId === team.id ? 'active' : ''}`}
+                  onClick={() => setSelectedTeamId(team.id)}
+                >
+                  <span>{team.name}</span>
+                  <span className="row-actions">
+                    <button type="button" className="secondary" onClick={(event) => { event.stopPropagation(); renameTeam(team); }}>
+                      Rename
+                    </button>
+                    <button type="button" className="danger" onClick={(event) => { event.stopPropagation(); deleteTeam(team.id); }}>
+                      Delete
+                    </button>
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <form className="inline-form" onSubmit={createTeam}>
+              <input placeholder="New team" value={teamForm.name} onChange={(event) => setTeamForm({ name: event.target.value })} disabled={!selectedSeasonId} />
+              <button type="submit" disabled={!selectedSeasonId}>+ Team</button>
+            </form>
+
+            <button type="button" className="secondary" disabled={!selectedSeasonId || !selectedTeamId} onClick={() => setActiveModule('Home')}>
+              Open workspace
+            </button>
+          </section>
+
+          <section className="panel">
+            <h2>Getting started</h2>
+            <ol>
+              <li>Create a season.</li>
+              <li>Select season and create a team.</li>
+              <li>Open workspace and add roster.</li>
+              <li>Create match, then start logging events.</li>
+            </ol>
+          </section>
+        </div>
+
+        <footer className="footer">
+          <span>© 2026 Field Hockey Hub</span>
+          <div className="footer-links">
+            <button type="button" className="link-btn" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>Request Feature</button>
+            <button type="button" className="link-btn" onClick={openAnalyticsPreferences}>Analytics preferences</button>
+            <button type="button" className="link-btn" onClick={() => setActiveModule('Privacy')}>Privacy</button>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
   function renderModule() {
     if (activeModule === 'Matches') return renderMatches();
     if (activeModule === 'Roster') return renderRoster();
+    if (activeModule === 'Players') return renderPlayers();
     if (activeModule === 'Event Tracker') return renderEventTracker();
     if (activeModule === 'Stat Sheet') return renderStatSheet();
     if (activeModule === 'Analytics') return renderAnalytics();
+    if (activeModule === 'Video') return renderVideo();
+    if (activeModule === 'Possession') return renderPossession();
     if (activeModule === 'Help') return renderHelp();
     if (activeModule === 'Privacy') return renderPrivacy();
     if (activeModule === 'Changelog') return renderChangelog();
     if (activeModule === 'Settings') return renderSettings();
     return renderHome();
   }
-
-  useEffect(() => {
-    if (settings.defaultAnalysisScope !== analysisScope && !session?.user?.id) {
-      setAnalysisScope(settings.defaultAnalysisScope);
-    }
-  }, [settings.defaultAnalysisScope, analysisScope, session?.user?.id]);
 
   if (authLoading) {
     return (
@@ -2174,64 +2326,87 @@ function App() {
             <span>Sender: <code>no-reply@mail.app.supabase.io</code></span>
             <span>Subject usually includes: <code>Confirm Your Signup</code></span>
           </div>
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          <button type="submit" disabled={authBusy}>
-            {authBusy ? 'Sending...' : 'Send Magic Link'}
-          </button>
+          <input type="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} required />
+          <button type="submit" disabled={authBusy}>{authBusy ? 'Sending...' : 'Send Magic Link'}</button>
           {status ? <p className="status">{status}</p> : null}
         </form>
       </div>
     );
   }
 
+  if (restoringWorkspace && (!selectedSeason || !selectedTeam)) {
+    return (
+      <div className="page-shell">
+        <p className="status">Restoring workspace...</p>
+      </div>
+    );
+  }
+
+  if (!selectedSeason || !selectedTeam) {
+    return (
+      <>
+        {renderWorkspaceSetup()}
+        {featureDialog ? (
+          <div className="modal-backdrop" role="dialog" aria-modal="true">
+            <div className="modal">
+              <h3>Request Feature</h3>
+              <p className="muted">Or email directly: <a href="mailto:info@paulzuiderduin.com">info@paulzuiderduin.com</a></p>
+              <label className="stacked-label">Subject<input value={featureDialog.subject} onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, subject: event.target.value } : prev))} /></label>
+              <label className="stacked-label">Message<textarea rows={5} value={featureDialog.message} onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, message: event.target.value } : prev))} /></label>
+              {featureDialog.error ? <p className="status danger-status">{featureDialog.error}</p> : null}
+              <div className="modal-actions">
+                <button type="button" className="secondary" onClick={() => setFeatureDialog(null)}>Cancel</button>
+                <button type="button" onClick={submitFeatureRequest} disabled={featureDialog.submitting}>{featureDialog.submitting ? 'Submitting...' : 'Submit'}</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
   return (
-    <div className="layout">
+    <div className={`layout ${sidebarCollapsed ? 'collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="brand-block">
           <img className="brand-logo" src="/logos/fieldhockey-logo-dark.png" alt="Field Hockey Hub" />
-          <div>
-            <p className="brand-eyebrow">Sport-Tech</p>
-            <h1>Field Hockey Hub</h1>
-          </div>
+          {!sidebarCollapsed ? (
+            <div>
+              <p className="brand-eyebrow">Sport-Tech</p>
+              <h1>Field Hockey Hub</h1>
+            </div>
+          ) : null}
+          <button type="button" className="sidebar-toggle" onClick={() => setSidebarCollapsed((prev) => !prev)}>
+            {sidebarCollapsed ? '>' : '<'}
+          </button>
         </div>
 
         <nav>
           {visibleModules.map((module) => (
-            <button
-              key={module}
-              className={`nav-item ${activeModule === module ? 'active' : ''}`}
-              onClick={() => setActiveModule(module)}
-            >
-              {module}
+            <button key={module} className={`nav-item ${activeModule === module ? 'active' : ''}`} onClick={() => setActiveModule(module)} title={module}>
+              {sidebarCollapsed ? module.split(' ').map((part) => part[0]).join('') : module}
             </button>
           ))}
         </nav>
 
-        <button className="feature-link big" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>
-          Request Feature
-        </button>
-
-        <button className="signout" onClick={signOut}>
-          Sign out
-        </button>
+        <button className="feature-link big" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>Request Feature</button>
+        <button className="feature-link" onClick={openAnalyticsPreferences}>Analytics Preferences</button>
+        <button className="feature-link" onClick={handleSwitchTeam}>Switch Team</button>
+        <button className="signout" onClick={signOut}>Sign out</button>
       </aside>
 
       <main className="content">
         <header className="topbar">
           <div>
-            <p className="muted">{getTimeGreeting()}</p>
+            <p className="brand-eyebrow-inline">Field Hockey Hub</p>
             <h2>{activeModule}</h2>
+            <p className="muted">{MODULE_COPY[activeModule] || 'Field hockey team workspace.'}</p>
           </div>
 
           <div className="selectors">
-            <form className="tiny-form" onSubmit={createSeason}>
-              <select value={selectedSeasonId} onChange={(event) => setSelectedSeasonId(event.target.value)}>
+            <label className="top-select">
+              Season
+              <select value={selectedSeasonId} onChange={(event) => handleSeasonSelect(event.target.value)}>
                 <option value="">Select season</option>
                 {seasons.map((season) => (
                   <option key={season.id} value={season.id}>
@@ -2239,28 +2414,10 @@ function App() {
                   </option>
                 ))}
               </select>
-              <input
-                placeholder="New season"
-                value={seasonForm.name}
-                onChange={(event) => setSeasonForm({ name: event.target.value })}
-              />
-              <button type="submit">+ Season</button>
-            </form>
+            </label>
 
-            <div className="inline-meta-list">
-              {selectedSeason ? (
-                <>
-                  <button type="button" className="secondary" onClick={() => renameSeason(selectedSeason)}>
-                    Rename season
-                  </button>
-                  <button type="button" className="danger" onClick={() => deleteSeason(selectedSeason.id)}>
-                    Delete season
-                  </button>
-                </>
-              ) : null}
-            </div>
-
-            <form className="tiny-form" onSubmit={createTeam}>
+            <label className="top-select">
+              Team
               <select value={selectedTeamId} onChange={(event) => setSelectedTeamId(event.target.value)}>
                 <option value="">Select team</option>
                 {teams.map((team) => (
@@ -2269,26 +2426,7 @@ function App() {
                   </option>
                 ))}
               </select>
-              <input
-                placeholder="New team"
-                value={teamForm.name}
-                onChange={(event) => setTeamForm({ name: event.target.value })}
-              />
-              <button type="submit">+ Team</button>
-            </form>
-
-            <div className="inline-meta-list">
-              {selectedTeam ? (
-                <>
-                  <button type="button" className="secondary" onClick={() => renameTeam(selectedTeam)}>
-                    Rename team
-                  </button>
-                  <button type="button" className="danger" onClick={() => deleteTeam(selectedTeam.id)}>
-                    Delete team
-                  </button>
-                </>
-              ) : null}
-            </div>
+            </label>
           </div>
         </header>
 
@@ -2300,44 +2438,60 @@ function App() {
         <footer className="footer">
           <span>© 2026 Field Hockey Hub</span>
           <div className="footer-links">
-            <button type="button" className="link-btn" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>
-              Request Feature
-            </button>
-            <button type="button" className="link-btn" onClick={() => setActiveModule('Privacy')}>
-              Privacy
-            </button>
+            <button type="button" className="link-btn" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>Request Feature</button>
+            <button type="button" className="link-btn" onClick={() => setActiveModule('Privacy')}>Privacy</button>
+            <button type="button" className="link-btn" onClick={openAnalyticsPreferences}>Analytics</button>
           </div>
         </footer>
       </main>
+
+      <div className="utility-dock">
+        <button type="button" className="dock-primary" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>Request Feature</button>
+        <button type="button" className="dock-secondary" onClick={openAnalyticsPreferences}>Analytics preferences</button>
+      </div>
+
+      <div className="mobile-nav">
+        {mobilePrimaryModules.slice(0, 4).map((module) => (
+          <button key={module} type="button" className={activeModule === module ? 'active' : ''} onClick={() => { setActiveModule(module); setMobileMenuOpen(false); }}>
+            {module}
+          </button>
+        ))}
+        <button type="button" onClick={() => setMobileMenuOpen((prev) => !prev)}>More</button>
+      </div>
+      {mobileMenuOpen ? (
+        <div className="mobile-menu-overlay" onClick={() => setMobileMenuOpen(false)}>
+          <div className="mobile-menu" onClick={(event) => event.stopPropagation()}>
+            {mobileOverflowModules.map((module) => (
+              <button key={module} type="button" onClick={() => { setActiveModule(module); setMobileMenuOpen(false); }}>
+                {module}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                handleSwitchTeam();
+                setMobileMenuOpen(false);
+              }}
+            >
+              Switch Team
+            </button>
+            <button type="button" onClick={() => { openAnalyticsPreferences(); setMobileMenuOpen(false); }}>Analytics preferences</button>
+            <button type="button" onClick={() => { setFeatureDialog({ ...EMPTY_REQUEST }); setMobileMenuOpen(false); }}>Request Feature</button>
+          </div>
+        </div>
+      ) : null}
 
       {featureDialog ? (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal">
             <h3>Request Feature</h3>
             <p className="muted">Or email directly: <a href="mailto:info@paulzuiderduin.com">info@paulzuiderduin.com</a></p>
-            <label className="stacked-label">
-              Subject
-              <input
-                value={featureDialog.subject}
-                onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, subject: event.target.value } : prev))}
-              />
-            </label>
-            <label className="stacked-label">
-              Message
-              <textarea
-                rows={5}
-                value={featureDialog.message}
-                onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, message: event.target.value } : prev))}
-              />
-            </label>
+            <label className="stacked-label">Subject<input value={featureDialog.subject} onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, subject: event.target.value } : prev))} /></label>
+            <label className="stacked-label">Message<textarea rows={5} value={featureDialog.message} onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, message: event.target.value } : prev))} /></label>
             {featureDialog.error ? <p className="status danger-status">{featureDialog.error}</p> : null}
             <div className="modal-actions">
-              <button type="button" className="secondary" onClick={() => setFeatureDialog(null)}>
-                Cancel
-              </button>
-              <button type="button" onClick={submitFeatureRequest} disabled={featureDialog.submitting}>
-                {featureDialog.submitting ? 'Submitting...' : 'Submit'}
-              </button>
+              <button type="button" className="secondary" onClick={() => setFeatureDialog(null)}>Cancel</button>
+              <button type="button" onClick={submitFeatureRequest} disabled={featureDialog.submitting}>{featureDialog.submitting ? 'Submitting...' : 'Submit'}</button>
             </div>
           </div>
         </div>

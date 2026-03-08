@@ -119,15 +119,39 @@
 }
 
 .selectors {
-  display: grid;
-  gap: 8px;
-  min-width: min(100%, 720px);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: min(100%, 460px);
 }
 
 .tiny-form {
   display: grid;
   grid-template-columns: 1.2fr 1fr auto;
   gap: 8px;
+}
+
+.top-select {
+  display: grid;
+  gap: 5px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #5a7380;
+  min-width: min(220px, 100%);
+  flex: 1;
+}
+
+.top-select select {
+  min-width: 0;
+}
+
+.brand-eyebrow-inline {
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 0.72rem;
+  margin: 0;
+  color: #1d8a98;
+  font-weight: 700;
 }
 
 .tiny-form select,
@@ -857,6 +881,16 @@ th {
   .inline-form,
   .tracker-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .selectors {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .top-select {
+    min-width: 0;
   }
 
   .time-stepper {
