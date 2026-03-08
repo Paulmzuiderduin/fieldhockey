@@ -1,56 +1,150 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { supabase } from './lib/supabase';
 
-const ALL_MODULES = ['Home', 'Matches', 'Roster', 'Event Tracker', 'Analytics', 'Settings'];
+const MODULES = [
+  { name: 'Home', alwaysVisible: true },
+  { name: 'Matches' },
+  { name: 'Roster' },
+  { name: 'Event Tracker' },
+  { name: 'Stat Sheet' },
+  { name: 'Analytics' },
+  { name: 'Help', alwaysVisible: true },
+  { name: 'Privacy', alwaysVisible: true },
+  { name: 'Changelog', alwaysVisible: true },
+  { name: 'Settings', alwaysVisible: true }
+];
 
 const DEFAULT_SETTINGS = {
   quarterLength: 15,
   showStatTooltips: true,
-  visibleModules: {
-    Home: true,
-    Matches: true,
-    Roster: true,
-    'Event Tracker': true,
-    Analytics: true,
-    Settings: true
-  }
+  visibleModules: MODULES.reduce((acc, module) => {
+    acc[module.name] = true;
+    return acc;
+  }, {}),
+  defaultAnalysisScope: 'match'
 };
 
 const ACTION_GROUPS = [
   {
+    key: 'attacking',
     title: 'Attacking',
     actions: [
-      { key: 'goal', label: 'Goal', className: 'action-goal' },
-      { key: 'assist', label: 'Assist', className: 'action-assist' },
-      { key: 'shot', label: 'Shot', className: 'action-shot' },
-      { key: 'shot_on_target', label: 'Shot On Target', className: 'action-shot-target' },
-      { key: 'circle_entry', label: 'Circle Entry', className: 'action-circle' },
-      { key: 'pc_won', label: 'PC Won', className: 'action-pc' },
-      { key: 'pc_goal', label: 'PC Goal', className: 'action-pc-goal' },
-      { key: 'ps_won', label: 'PS Won', className: 'action-ps' },
-      { key: 'ps_scored', label: 'PS Scored', className: 'action-ps-goal' }
+      { key: 'goal', label: 'Goal', className: 'action-goal', tooltip: 'Open play goal.' },
+      { key: 'assist', label: 'Assist', className: 'action-assist', tooltip: 'Final pass before a goal.' },
+      { key: 'shot', label: 'Shot', className: 'action-shot', tooltip: 'Shot attempt that did not hit target.' },
+      {
+        key: 'shot_on_target',
+        label: 'Shot On Target',
+        className: 'action-shot-target',
+        tooltip: 'Shot that would score without a save.'
+      },
+      { key: 'circle_entry', label: 'Circle Entry', className: 'action-circle', tooltip: 'Controlled circle entry.' },
+      { key: 'pc_won', label: 'PC Won', className: 'action-pc', tooltip: 'Penalty corner won.' },
+      { key: 'pc_goal', label: 'PC Goal', className: 'action-pc-goal', tooltip: 'Goal from penalty corner.' },
+      { key: 'ps_won', label: 'PS Won', className: 'action-ps', tooltip: 'Penalty stroke won.' },
+      { key: 'ps_scored', label: 'PS Scored', className: 'action-ps-goal', tooltip: 'Penalty stroke converted.' }
     ]
   },
   {
+    key: 'defending',
     title: 'Defending',
     actions: [
-      { key: 'save', label: 'Save', className: 'action-save' },
-      { key: 'interception', label: 'Interception', className: 'action-interception' },
-      { key: 'tackle_won', label: 'Tackle Won', className: 'action-tackle' },
-      { key: 'turnover_won', label: 'Turnover Won', className: 'action-turnover-won' },
-      { key: 'turnover_lost', label: 'Turnover Lost', className: 'action-turnover-lost' },
-      { key: 'pc_conceded', label: 'PC Conceded', className: 'action-pc-conceded' },
-      { key: 'card_green', label: 'Green Card', className: 'action-card-green' },
-      { key: 'card_yellow', label: 'Yellow Card', className: 'action-card-yellow' },
-      { key: 'card_red', label: 'Red Card', className: 'action-card-red' }
+      { key: 'save', label: 'Save', className: 'action-save', tooltip: 'Goalkeeper or defensive save.' },
+      { key: 'interception', label: 'Interception', className: 'action-interception', tooltip: 'Intercepted pass/ball.' },
+      { key: 'tackle_won', label: 'Tackle Won', className: 'action-tackle', tooltip: 'Successful tackle.' },
+      {
+        key: 'turnover_won',
+        label: 'Turnover Won',
+        className: 'action-turnover-won',
+        tooltip: 'Regained possession from opponent.'
+      },
+      {
+        key: 'turnover_lost',
+        label: 'Turnover Lost',
+        className: 'action-turnover-lost',
+        tooltip: 'Lost possession.'
+      },
+      { key: 'pc_conceded', label: 'PC Conceded', className: 'action-pc-conceded', tooltip: 'Penalty corner conceded.' },
+      { key: 'card_green', label: 'Green Card', className: 'action-card-green', tooltip: 'Green card.' },
+      { key: 'card_yellow', label: 'Yellow Card', className: 'action-card-yellow', tooltip: 'Yellow card.' },
+      { key: 'card_red', label: 'Red Card', className: 'action-card-red', tooltip: 'Red card.' }
     ]
   }
 ];
 
+const STAT_TOOLTIPS = {
+  goals: 'Goals scored (open play + PC goals + PS scored).',
+  assists: 'Final pass that directly creates a goal.',
+  shots_total: 'Total shots = shots + shots on target + goals.',
+  shots_on_target_total: 'Shots on target, including goals.',
+  shot_accuracy: 'Shots on target divided by total shots.',
+  goal_conversion: 'Goals divided by total shots.',
+  pc_won: 'Penalty corners won.',
+  pc_goals: 'Goals scored from penalty corners.',
+  pc_conversion: 'PC goals divided by PC won.',
+  ps_conversion: 'PS scored divided by PS won.',
+  circle_entries: 'Controlled entries into the attacking circle.',
+  saves: 'Total saves.',
+  interceptions: 'Total interceptions.',
+  tackles_won: 'Total successful tackles.',
+  turnover_balance: 'Turnovers won minus turnovers lost.',
+  discipline: 'Weighted card score (green 1, yellow 2, red 4).',
+  control_index: 'Proxy for control based on shot accuracy.',
+  finishing_index: 'Proxy for finishing based on goal conversion.',
+  transition_index: 'Transition impact based on turnover balance.',
+  discipline_index: 'Score from discipline events (higher is better).'
+};
+
 const EMPTY_FORM = { name: '' };
 const EMPTY_PLAYER_FORM = { name: '', number: '', position: '' };
 const EMPTY_MATCH_FORM = { opponent: '', match_date: '' };
+const EMPTY_REQUEST = { subject: 'Field Hockey Feature Request', message: '', submitting: false, error: '' };
+
+const SETTINGS_KEY = 'fieldhockey_settings_v2';
+const UI_KEY = 'fieldhockey_ui_state_v2';
+
+function safeParse(value, fallback) {
+  try {
+    if (!value) return fallback;
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function loadLocalSettings() {
+  const parsed = safeParse(localStorage.getItem(SETTINGS_KEY), DEFAULT_SETTINGS);
+  return {
+    quarterLength: Number(parsed.quarterLength) || DEFAULT_SETTINGS.quarterLength,
+    showStatTooltips:
+      typeof parsed.showStatTooltips === 'boolean' ? parsed.showStatTooltips : DEFAULT_SETTINGS.showStatTooltips,
+    defaultAnalysisScope:
+      parsed.defaultAnalysisScope === 'season' || parsed.defaultAnalysisScope === 'match'
+        ? parsed.defaultAnalysisScope
+        : DEFAULT_SETTINGS.defaultAnalysisScope,
+    visibleModules: {
+      ...DEFAULT_SETTINGS.visibleModules,
+      ...(parsed.visibleModules || {})
+    }
+  };
+}
+
+function loadUiState() {
+  const parsed = safeParse(localStorage.getItem(UI_KEY), {});
+  return {
+    activeModule: parsed.activeModule || 'Home',
+    selectedSeasonId: parsed.selectedSeasonId || '',
+    selectedTeamId: parsed.selectedTeamId || '',
+    selectedMatchId: parsed.selectedMatchId || '',
+    analysisScope: parsed.analysisScope === 'season' ? 'season' : 'match'
+  };
+}
+
+function toPercentNumber(top, bottom) {
+  if (!bottom) return 0;
+  return Math.round((top / bottom) * 100);
+}
 
 function toCountMap(events) {
   return events.reduce((acc, event) => {
@@ -59,13 +153,43 @@ function toCountMap(events) {
   }, {});
 }
 
-function toPercentNumber(top, bottom) {
-  if (!bottom) return 0;
-  return Math.round((top / bottom) * 100);
+function parseClockToSeconds(clock, quarterLength) {
+  const [rawMinutes, rawSeconds] = String(clock || '').split(':');
+  const minutes = Number(rawMinutes);
+  const seconds = Number(rawSeconds);
+  const safeMinutes = Number.isFinite(minutes) ? minutes : quarterLength;
+  const safeSeconds = Number.isFinite(seconds) ? seconds : 0;
+  return Math.max(0, Math.min(quarterLength * 60, safeMinutes * 60 + safeSeconds));
 }
 
-function toPercent(top, bottom) {
-  return `${toPercentNumber(top, bottom)}%`;
+function formatSecondsAsClock(totalSeconds) {
+  const clamped = Math.max(0, totalSeconds);
+  const minutes = Math.floor(clamped / 60);
+  const seconds = clamped % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function buildClockPresets(quarterLength) {
+  const half = Math.max(1, Math.floor(quarterLength / 2));
+  const values = [
+    `${String(quarterLength).padStart(2, '0')}:00`,
+    '10:00',
+    `${String(half).padStart(2, '0')}:00`,
+    '05:00',
+    '02:00',
+    '01:00',
+    '00:30',
+    '00:00'
+  ];
+  return values.filter((value, index) => values.indexOf(value) === index);
+}
+
+function splitClock(value) {
+  const [rawMinutes, rawSeconds] = String(value || '').split(':');
+  return {
+    minutes: /^\d{1,2}$/.test(rawMinutes || '') ? rawMinutes.padStart(2, '0') : '00',
+    seconds: /^\d{1,2}$/.test(rawSeconds || '') ? rawSeconds.padStart(2, '0') : '00'
+  };
 }
 
 function getTimeGreeting() {
@@ -75,47 +199,276 @@ function getTimeGreeting() {
   return 'Good evening';
 }
 
-function loadLocalSettings() {
-  try {
-    const raw = localStorage.getItem('fieldhockey_settings');
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw);
-    return {
-      quarterLength: parsed.quarterLength || DEFAULT_SETTINGS.quarterLength,
-      showStatTooltips:
-        typeof parsed.showStatTooltips === 'boolean' ? parsed.showStatTooltips : DEFAULT_SETTINGS.showStatTooltips,
-      visibleModules: {
-        ...DEFAULT_SETTINGS.visibleModules,
-        ...(parsed.visibleModules || {})
-      }
-    };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+function downloadTextFile(filename, content, mimeType = 'text/plain;charset=utf-8') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
-const STAT_TOOLTIPS = {
-  goals: 'Total goals scored.',
-  assists: 'Final pass that directly leads to a goal.',
-  shots: 'Total shot attempts.',
-  shots_on_target: 'Shots that would go in without a save/block.',
-  shot_accuracy: 'Shots on target divided by total shots.',
-  goal_conversion: 'Goals divided by total shots.',
-  pc_won: 'Penalty corners won by your team.',
-  pc_goal: 'Goals scored from penalty corners.',
-  pc_conversion: 'Penalty corner goals divided by penalty corners won.',
-  ps_conversion: 'Penalty stroke goals divided by penalty strokes won.',
-  circle_entries: 'Controlled entries into the attacking circle.',
-  saves: 'Saves made by your goalkeeper/team defense.',
-  interceptions: 'Passes or balls intercepted from opponents.',
-  tackles_won: 'Successful tackles resulting in possession.',
-  turnover_balance: 'Turnovers won minus turnovers lost.',
-  cards: 'Total discipline cards received (green/yellow/red).',
-  control_index: 'Team control proxy based on shot accuracy.',
-  finishing_index: 'Team finishing proxy based on goal conversion.',
-  transition_index: 'Transition impact from turnover balance.',
-  discipline_index: 'Penalty from cards, scaled to 0-100.'
-};
+function toCsvCell(value) {
+  const text = String(value ?? '');
+  if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+    return `"${text.replaceAll('"', '""')}"`;
+  }
+  return text;
+}
+
+function splitCsvLine(line) {
+  const out = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      out.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  out.push(current);
+  return out;
+}
+
+function normalizeHeader(header) {
+  return String(header || '')
+    .trim()
+    .toLowerCase()
+    .replaceAll(' ', '_')
+    .replaceAll('-', '_');
+}
+
+function parseNumber(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const parsed = Number(String(value).replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function computeStatsFromEvents(matchEvents) {
+  const counts = toCountMap(matchEvents);
+  const goals = (counts.goal || 0) + (counts.pc_goal || 0) + (counts.ps_scored || 0);
+  const shotsOffTarget = counts.shot || 0;
+  const shotsOnTargetNoGoal = counts.shot_on_target || 0;
+  const shotsTotal = shotsOffTarget + shotsOnTargetNoGoal + goals;
+  const shotsOnTargetTotal = shotsOnTargetNoGoal + goals;
+  const pcWon = counts.pc_won || 0;
+  const pcGoals = counts.pc_goal || 0;
+  const psWon = counts.ps_won || 0;
+  const psScored = counts.ps_scored || 0;
+  const turnoverWon = counts.turnover_won || 0;
+  const turnoverLost = counts.turnover_lost || 0;
+  const greenCards = counts.card_green || 0;
+  const yellowCards = counts.card_yellow || 0;
+  const redCards = counts.card_red || 0;
+  const discipline = greenCards + yellowCards * 2 + redCards * 4;
+
+  return {
+    goals,
+    assists: counts.assist || 0,
+    shotsTotal,
+    shotsOnTargetTotal,
+    shotAccuracy: toPercentNumber(shotsOnTargetTotal, shotsTotal),
+    goalConversion: toPercentNumber(goals, shotsTotal),
+    pcWon,
+    pcGoals,
+    pcConversion: toPercentNumber(pcGoals, pcWon),
+    psWon,
+    psScored,
+    psConversion: toPercentNumber(psScored, psWon),
+    circleEntries: counts.circle_entry || 0,
+    saves: counts.save || 0,
+    interceptions: counts.interception || 0,
+    tacklesWon: counts.tackle_won || 0,
+    turnoverWon,
+    turnoverLost,
+    turnoverBalance: turnoverWon - turnoverLost,
+    greenCards,
+    yellowCards,
+    redCards,
+    discipline,
+    controlIndex: toPercentNumber(shotsOnTargetTotal, shotsTotal),
+    finishingIndex: toPercentNumber(goals, shotsTotal),
+    transitionIndex: turnoverWon - turnoverLost,
+    disciplineIndex: Math.max(0, 100 - discipline * 8)
+  };
+}
+
+function buildGeneratedRows(matches, events) {
+  return matches.map((match) => {
+    const matchEvents = events.filter((event) => event.match_id === match.id);
+    return {
+      rowId: `generated_${match.id}`,
+      source: 'generated',
+      matchId: match.id,
+      opponent: match.opponent,
+      matchDate: match.match_date || '',
+      ...computeStatsFromEvents(matchEvents)
+    };
+  });
+}
+
+function buildSummary(rows) {
+  if (!rows.length) {
+    return {
+      matches: 0,
+      goals: 0,
+      shotsTotal: 0,
+      shotsOnTargetTotal: 0,
+      shotAccuracy: 0,
+      pcWon: 0,
+      pcGoals: 0,
+      pcConversion: 0,
+      turnoverBalance: 0,
+      discipline: 0,
+      controlIndex: 0,
+      finishingIndex: 0,
+      transitionIndex: 0,
+      disciplineIndex: 0
+    };
+  }
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.matches += 1;
+      acc.goals += row.goals || 0;
+      acc.shotsTotal += row.shotsTotal || 0;
+      acc.shotsOnTargetTotal += row.shotsOnTargetTotal || 0;
+      acc.pcWon += row.pcWon || 0;
+      acc.pcGoals += row.pcGoals || 0;
+      acc.turnoverBalance += row.turnoverBalance || 0;
+      acc.discipline += row.discipline || 0;
+      acc.controlIndex += row.controlIndex || 0;
+      acc.finishingIndex += row.finishingIndex || 0;
+      acc.transitionIndex += row.transitionIndex || 0;
+      acc.disciplineIndex += row.disciplineIndex || 0;
+      return acc;
+    },
+    {
+      matches: 0,
+      goals: 0,
+      shotsTotal: 0,
+      shotsOnTargetTotal: 0,
+      pcWon: 0,
+      pcGoals: 0,
+      turnoverBalance: 0,
+      discipline: 0,
+      controlIndex: 0,
+      finishingIndex: 0,
+      transitionIndex: 0,
+      disciplineIndex: 0
+    }
+  );
+
+  return {
+    ...totals,
+    shotAccuracy: toPercentNumber(totals.shotsOnTargetTotal, totals.shotsTotal),
+    pcConversion: toPercentNumber(totals.pcGoals, totals.pcWon),
+    controlIndex: Math.round(totals.controlIndex / totals.matches),
+    finishingIndex: Math.round(totals.finishingIndex / totals.matches),
+    transitionIndex: Math.round(totals.transitionIndex / totals.matches),
+    disciplineIndex: Math.round(totals.disciplineIndex / totals.matches)
+  };
+}
+
+function parseStatSheetCsv(text) {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return {
+      rows: [],
+      accepted: 0,
+      total: 0,
+      skipped: [{ line: 0, reason: 'File is empty.' }]
+    };
+  }
+
+  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
+  const rows = [];
+  const skipped = [];
+
+  const readValue = (record, keys) => {
+    for (const key of keys) {
+      if (record[key] !== undefined) return record[key];
+    }
+    return '';
+  };
+
+  for (let lineIndex = 1; lineIndex < lines.length; lineIndex += 1) {
+    const values = splitCsvLine(lines[lineIndex]);
+    const record = {};
+    headers.forEach((header, index) => {
+      record[header] = values[index] ?? '';
+    });
+
+    const opponent = readValue(record, ['opponent', 'match', 'match_name']).trim();
+    if (!opponent) {
+      skipped.push({ line: lineIndex + 1, reason: 'Missing opponent/match column.' });
+      continue;
+    }
+
+    const row = {
+      rowId: `imported_${Date.now()}_${lineIndex}`,
+      source: 'imported',
+      matchId: '',
+      opponent,
+      matchDate: readValue(record, ['match_date', 'date']) || '',
+      goals: parseNumber(readValue(record, ['goals'])) ?? null,
+      assists: parseNumber(readValue(record, ['assists'])) ?? null,
+      shotsTotal: parseNumber(readValue(record, ['shots_total', 'shots'])) ?? null,
+      shotsOnTargetTotal: parseNumber(readValue(record, ['shots_on_target_total', 'shots_on_target', 'sot'])) ?? null,
+      shotAccuracy: parseNumber(readValue(record, ['shot_accuracy'])) ?? null,
+      goalConversion: parseNumber(readValue(record, ['goal_conversion'])) ?? null,
+      pcWon: parseNumber(readValue(record, ['pc_won'])) ?? null,
+      pcGoals: parseNumber(readValue(record, ['pc_goals', 'pc_goal'])) ?? null,
+      pcConversion: parseNumber(readValue(record, ['pc_conversion'])) ?? null,
+      psWon: parseNumber(readValue(record, ['ps_won'])) ?? null,
+      psScored: parseNumber(readValue(record, ['ps_scored'])) ?? null,
+      psConversion: parseNumber(readValue(record, ['ps_conversion'])) ?? null,
+      circleEntries: parseNumber(readValue(record, ['circle_entries'])) ?? null,
+      saves: parseNumber(readValue(record, ['saves'])) ?? null,
+      interceptions: parseNumber(readValue(record, ['interceptions'])) ?? null,
+      tacklesWon: parseNumber(readValue(record, ['tackles_won'])) ?? null,
+      turnoverWon: parseNumber(readValue(record, ['turnover_won'])) ?? null,
+      turnoverLost: parseNumber(readValue(record, ['turnover_lost'])) ?? null,
+      turnoverBalance: parseNumber(readValue(record, ['turnover_balance'])) ?? null,
+      greenCards: parseNumber(readValue(record, ['green_cards'])) ?? null,
+      yellowCards: parseNumber(readValue(record, ['yellow_cards'])) ?? null,
+      redCards: parseNumber(readValue(record, ['red_cards'])) ?? null,
+      discipline: parseNumber(readValue(record, ['discipline'])) ?? null,
+      controlIndex: parseNumber(readValue(record, ['control_index'])) ?? null,
+      finishingIndex: parseNumber(readValue(record, ['finishing_index'])) ?? null,
+      transitionIndex: parseNumber(readValue(record, ['transition_index'])) ?? null,
+      disciplineIndex: parseNumber(readValue(record, ['discipline_index'])) ?? null
+    };
+
+    rows.push(row);
+  }
+
+  return {
+    rows,
+    accepted: rows.length,
+    total: Math.max(0, lines.length - 1),
+    skipped
+  };
+}
 
 const StatLabel = ({ label, tooltip, enabled }) => {
   if (!enabled || !tooltip) return <span>{label}</span>;
@@ -132,29 +485,16 @@ const StatLabel = ({ label, tooltip, enabled }) => {
   );
 };
 
-function buildClockPresets(quarterLength) {
-  const full = `${String(quarterLength).padStart(2, '0')}:00`;
-  const mid = `${String(Math.max(1, Math.floor(quarterLength / 2))).padStart(2, '0')}:00`;
-  return [full, '10:00', mid, '05:00', '02:00', '01:00', '00:30', '00:00'].filter(
-    (value, index, array) => array.indexOf(value) === index
-  );
-}
-
-function splitClock(value) {
-  const [rawMinutes, rawSeconds] = String(value || '').split(':');
-  const minutes = /^\d{1,2}$/.test(rawMinutes || '') ? rawMinutes.padStart(2, '0') : '00';
-  const seconds = /^\d{1,2}$/.test(rawSeconds || '') ? rawSeconds.padStart(2, '0') : '00';
-  return { minutes, seconds };
-}
-
 function App() {
+  const initialUiState = loadUiState();
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
   const [email, setEmail] = useState('');
 
   const [settings, setSettings] = useState(loadLocalSettings);
-  const [activeModule, setActiveModule] = useState('Home');
+  const [activeModule, setActiveModule] = useState(initialUiState.activeModule);
+  const [analysisScope, setAnalysisScope] = useState(initialUiState.analysisScope || 'match');
   const [status, setStatus] = useState('');
 
   const [seasons, setSeasons] = useState([]);
@@ -164,9 +504,9 @@ function App() {
   const [events, setEvents] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
 
-  const [selectedSeasonId, setSelectedSeasonId] = useState('');
-  const [selectedTeamId, setSelectedTeamId] = useState('');
-  const [selectedMatchId, setSelectedMatchId] = useState('');
+  const [selectedSeasonId, setSelectedSeasonId] = useState(initialUiState.selectedSeasonId);
+  const [selectedTeamId, setSelectedTeamId] = useState(initialUiState.selectedTeamId);
+  const [selectedMatchId, setSelectedMatchId] = useState(initialUiState.selectedMatchId);
 
   const [seasonForm, setSeasonForm] = useState(EMPTY_FORM);
   const [teamForm, setTeamForm] = useState(EMPTY_FORM);
@@ -180,13 +520,21 @@ function App() {
   const [featureDialog, setFeatureDialog] = useState(null);
   const [period, setPeriod] = useState(1);
   const [clock, setClock] = useState(`${String(DEFAULT_SETTINGS.quarterLength).padStart(2, '0')}:00`);
+  const [activeActionGroupKey, setActiveActionGroupKey] = useState(ACTION_GROUPS[0].key);
 
-  const visibleModules = useMemo(
-    () => ALL_MODULES.filter((moduleName) => settings.visibleModules[moduleName] !== false),
-    [settings.visibleModules]
-  );
+  const [importReport, setImportReport] = useState(null);
+  const [importedRows, setImportedRows] = useState([]);
+  const [statSheetSource, setStatSheetSource] = useState('all');
 
-  const clockPresets = useMemo(() => buildClockPresets(settings.quarterLength), [settings.quarterLength]);
+  const hiddenImportInputRef = useRef(null);
+
+  const selectedSeason = useMemo(() => seasons.find((season) => season.id === selectedSeasonId) || null, [seasons, selectedSeasonId]);
+  const selectedTeam = useMemo(() => teams.find((team) => team.id === selectedTeamId) || null, [teams, selectedTeamId]);
+
+  const visibleModules = useMemo(() => {
+    return MODULES.filter((module) => module.alwaysVisible || settings.visibleModules[module.name] !== false).map((module) => module.name);
+  }, [settings.visibleModules]);
+
   const minuteOptions = useMemo(
     () =>
       Array.from({ length: settings.quarterLength + 1 }, (_, index) =>
@@ -194,28 +542,120 @@ function App() {
       ),
     [settings.quarterLength]
   );
-  const secondOptions = useMemo(
-    () => Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0')),
-    []
-  );
+
+  const secondOptions = useMemo(() => Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0')), []);
+  const clockPresets = useMemo(() => buildClockPresets(settings.quarterLength), [settings.quarterLength]);
   const clockParts = useMemo(() => splitClock(clock), [clock]);
-  const statTooltip = (key) => (settings.showStatTooltips ? STAT_TOOLTIPS[key] || '' : '');
+
+  const statTooltip = useCallback(
+    (key) => {
+      if (!settings.showStatTooltips) return '';
+      return STAT_TOOLTIPS[key] || '';
+    },
+    [settings.showStatTooltips]
+  );
+
+  const analysisEvents = useMemo(() => {
+    if (analysisScope === 'match' && selectedMatchId) {
+      return events.filter((event) => event.match_id === selectedMatchId);
+    }
+    return events;
+  }, [analysisScope, selectedMatchId, events]);
+
+  const generatedStatRows = useMemo(() => buildGeneratedRows(matches, events), [matches, events]);
+
+  const statRows = useMemo(() => {
+    if (statSheetSource === 'generated') return generatedStatRows;
+    if (statSheetSource === 'imported') return importedRows;
+    return [...generatedStatRows, ...importedRows];
+  }, [generatedStatRows, importedRows, statSheetSource]);
+
+  const statSummary = useMemo(() => buildSummary(statRows), [statRows]);
+  const analyticsSummary = useMemo(() => computeStatsFromEvents(analysisEvents), [analysisEvents]);
+
+  const matchRows = useMemo(() => {
+    return [...generatedStatRows].sort((a, b) => {
+      if (!a.matchDate && !b.matchDate) return a.opponent.localeCompare(b.opponent);
+      if (!a.matchDate) return 1;
+      if (!b.matchDate) return -1;
+      return b.matchDate.localeCompare(a.matchDate);
+    });
+  }, [generatedStatRows]);
+
+  const topPlayers = useMemo(() => {
+    const byPlayer = {};
+    for (const event of analysisEvents) {
+      if (!event.player_id) continue;
+      if (!byPlayer[event.player_id]) {
+        byPlayer[event.player_id] = {
+          playerId: event.player_id,
+          goals: 0,
+          assists: 0,
+          shots: 0,
+          cards: 0
+        };
+      }
+      if (event.event_type === 'goal' || event.event_type === 'pc_goal' || event.event_type === 'ps_scored') byPlayer[event.player_id].goals += 1;
+      if (event.event_type === 'assist') byPlayer[event.player_id].assists += 1;
+      if (event.event_type === 'shot' || event.event_type === 'shot_on_target') byPlayer[event.player_id].shots += 1;
+      if (['card_green', 'card_yellow', 'card_red'].includes(event.event_type)) byPlayer[event.player_id].cards += 1;
+    }
+
+    return Object.values(byPlayer)
+      .map((entry) => ({ ...entry, player: players.find((player) => player.id === entry.playerId) }))
+      .sort((a, b) => b.goals - a.goals || b.assists - a.assists || b.shots - a.shots)
+      .slice(0, 10);
+  }, [analysisEvents, players]);
+
+  const playerReport = useMemo(() => {
+    if (!reportPlayerId) return null;
+    const player = players.find((entry) => entry.id === reportPlayerId);
+    if (!player) return null;
+
+    const playerEvents = analysisEvents.filter((event) => event.player_id === reportPlayerId);
+    const stats = computeStatsFromEvents(playerEvents);
+
+    return {
+      player,
+      events: playerEvents.length,
+      ...stats,
+      contributions: stats.goals + stats.assists
+    };
+  }, [reportPlayerId, players, analysisEvents]);
+
+  const selectedMatchEvents = useMemo(() => {
+    if (!selectedMatchId) return [];
+    return events.filter((event) => event.match_id === selectedMatchId);
+  }, [events, selectedMatchId]);
 
   useEffect(() => {
-    localStorage.setItem('fieldhockey_settings', JSON.stringify(settings));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      UI_KEY,
+      JSON.stringify({
+        activeModule,
+        selectedSeasonId,
+        selectedTeamId,
+        selectedMatchId,
+        analysisScope
+      })
+    );
+  }, [activeModule, selectedSeasonId, selectedTeamId, selectedMatchId, analysisScope]);
 
   useEffect(() => {
     if (!visibleModules.includes(activeModule)) {
       setActiveModule(visibleModules[0] || 'Home');
     }
-  }, [visibleModules, activeModule]);
+  }, [activeModule, visibleModules]);
 
   useEffect(() => {
     if (!clock || Number(clock.split(':')[0]) > settings.quarterLength) {
       setClock(`${String(settings.quarterLength).padStart(2, '0')}:00`);
     }
-  }, [settings.quarterLength]);
+  }, [clock, settings.quarterLength]);
 
   useEffect(() => {
     let mounted = true;
@@ -242,17 +682,23 @@ function App() {
       setPlayers([]);
       setMatches([]);
       setEvents([]);
+      setSelectedSeasonId('');
+      setSelectedTeamId('');
+      setSelectedMatchId('');
       return;
     }
     loadSeasons(session.user.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
   useEffect(() => {
     if (!session?.user?.id || !selectedSeasonId) {
       setTeams([]);
+      setSelectedTeamId('');
       return;
     }
     loadTeams(session.user.id, selectedSeasonId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, selectedSeasonId]);
 
   useEffect(() => {
@@ -260,190 +706,66 @@ function App() {
       setPlayers([]);
       setMatches([]);
       setEvents([]);
+      setSelectedMatchId('');
       return;
     }
     loadTeamResources(session.user.id, selectedTeamId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, selectedTeamId]);
 
   useEffect(() => {
-    if (selectedMatchId && !matches.find((match) => match.id === selectedMatchId)) {
-      setSelectedMatchId('');
+    if (selectedMatchId && !matches.some((match) => match.id === selectedMatchId)) {
+      setSelectedMatchId(matches[0]?.id || '');
     }
-  }, [matches, selectedMatchId]);
+  }, [selectedMatchId, matches]);
 
   useEffect(() => {
-    if (!selectedMatchId && matches.length) {
-      setSelectedMatchId(matches[0].id);
-    }
-  }, [matches, selectedMatchId]);
-
-  useEffect(() => {
-    if (reportPlayerId && !players.find((player) => player.id === reportPlayerId)) {
-      setReportPlayerId('');
-    }
-    if (!reportPlayerId && players[0]?.id) {
-      setReportPlayerId(players[0].id);
+    if (!reportPlayerId || !players.find((player) => player.id === reportPlayerId)) {
+      setReportPlayerId(players[0]?.id || '');
     }
   }, [players, reportPlayerId]);
 
-  const filteredEvents = useMemo(() => {
-    if (!selectedMatchId) return events;
-    return events.filter((event) => event.match_id === selectedMatchId);
-  }, [events, selectedMatchId]);
-
-  const eventCounts = useMemo(() => toCountMap(filteredEvents), [filteredEvents]);
-
-  const kpis = useMemo(() => {
-    const goals = eventCounts.goal || 0;
-    const assists = eventCounts.assist || 0;
-    const shots = eventCounts.shot || 0;
-    const shotsOnTarget = eventCounts.shot_on_target || 0;
-    const pcWon = eventCounts.pc_won || 0;
-    const pcGoal = eventCounts.pc_goal || 0;
-    const psWon = eventCounts.ps_won || 0;
-    const psScored = eventCounts.ps_scored || 0;
-    const turnoverWon = eventCounts.turnover_won || 0;
-    const turnoverLost = eventCounts.turnover_lost || 0;
-
-    return {
-      goals,
-      assists,
-      shots,
-      shotsOnTarget,
-      shotAccuracy: toPercent(shotsOnTarget, shots),
-      shotAccuracyNum: toPercentNumber(shotsOnTarget, shots),
-      goalConversion: toPercent(goals, shots),
-      goalConversionNum: toPercentNumber(goals, shots),
-      pcWon,
-      pcGoal,
-      pcConversion: toPercent(pcGoal, pcWon),
-      psWon,
-      psScored,
-      psConversion: toPercent(psScored, psWon),
-      circleEntries: eventCounts.circle_entry || 0,
-      saves: eventCounts.save || 0,
-      interceptions: eventCounts.interception || 0,
-      tacklesWon: eventCounts.tackle_won || 0,
-      turnoverWon,
-      turnoverLost,
-      turnoverBalance: turnoverWon - turnoverLost,
-      greenCards: eventCounts.card_green || 0,
-      yellowCards: eventCounts.card_yellow || 0,
-      redCards: eventCounts.card_red || 0
-    };
-  }, [eventCounts]);
-
-  const topPlayers = useMemo(() => {
-    const byPlayer = {};
-    for (const event of filteredEvents) {
-      if (!event.player_id) continue;
-      if (!byPlayer[event.player_id]) {
-        byPlayer[event.player_id] = {
-          playerId: event.player_id,
-          goals: 0,
-          assists: 0,
-          shots: 0,
-          cards: 0
-        };
-      }
-      if (event.event_type === 'goal') byPlayer[event.player_id].goals += 1;
-      if (event.event_type === 'assist') byPlayer[event.player_id].assists += 1;
-      if (event.event_type === 'shot') byPlayer[event.player_id].shots += 1;
-      if (['card_green', 'card_yellow', 'card_red'].includes(event.event_type)) byPlayer[event.player_id].cards += 1;
+  useEffect(() => {
+    if (!selectedTeamId) {
+      setImportedRows([]);
+      setImportReport(null);
+      return;
     }
+    const parsed = safeParse(localStorage.getItem(`fieldhockey_statsheet_import_${selectedTeamId}`), []);
+    setImportedRows(Array.isArray(parsed) ? parsed : []);
+    setImportReport(null);
+  }, [selectedTeamId]);
 
-    return Object.values(byPlayer)
-      .map((row) => ({ ...row, player: players.find((p) => p.id === row.playerId) }))
-      .sort((a, b) => b.goals - a.goals || b.assists - a.assists || b.shots - a.shots)
-      .slice(0, 8);
-  }, [filteredEvents, players]);
-
-  const matchTrends = useMemo(() => {
-    return matches
-      .map((match) => {
-        const matchEvents = events.filter((event) => event.match_id === match.id);
-        const counts = toCountMap(matchEvents);
-        const shots = counts.shot || 0;
-        const onTarget = counts.shot_on_target || 0;
-        const goals = counts.goal || 0;
-        const pcWon = counts.pc_won || 0;
-        const pcGoal = counts.pc_goal || 0;
-        const cards = (counts.card_green || 0) + (counts.card_yellow || 0) + (counts.card_red || 0);
-        return {
-          matchId: match.id,
-          opponent: match.opponent,
-          date: match.match_date,
-          goals,
-          shots,
-          onTarget,
-          shotAccuracyNum: toPercentNumber(onTarget, shots),
-          pcWon,
-          pcGoal,
-          pcConversionNum: toPercentNumber(pcGoal, pcWon),
-          turnovers: (counts.turnover_won || 0) - (counts.turnover_lost || 0),
-          circleEntries: counts.circle_entry || 0,
-          cards
-        };
-      })
-      .sort((a, b) => {
-        if (!a.date && !b.date) return 0;
-        if (!a.date) return 1;
-        if (!b.date) return -1;
-        return a.date.localeCompare(b.date);
-      });
-  }, [matches, events]);
-
-  const trendMax = useMemo(() => {
-    const maxShots = Math.max(1, ...matchTrends.map((item) => item.shots));
-    const maxGoals = Math.max(1, ...matchTrends.map((item) => item.goals));
-    const maxEntries = Math.max(1, ...matchTrends.map((item) => item.circleEntries));
-    return { maxShots, maxGoals, maxEntries };
-  }, [matchTrends]);
-
-  const playerReport = useMemo(() => {
-    if (!reportPlayerId) return null;
-    const player = players.find((item) => item.id === reportPlayerId);
-    if (!player) return null;
-    const playerEvents = filteredEvents.filter((event) => event.player_id === reportPlayerId);
-    const counts = toCountMap(playerEvents);
-    const goals = counts.goal || 0;
-    const assists = counts.assist || 0;
-    const shots = counts.shot || 0;
-    const onTarget = counts.shot_on_target || 0;
-    const pcGoals = counts.pc_goal || 0;
-    const discipline = (counts.card_green || 0) + (counts.card_yellow || 0) * 2 + (counts.card_red || 0) * 4;
-
-    return {
-      player,
-      events: playerEvents.length,
-      goals,
-      assists,
-      shots,
-      onTarget,
-      shotAccuracy: toPercent(onTarget, shots),
-      contributions: goals + assists,
-      circleEntries: counts.circle_entry || 0,
-      tackles: counts.tackle_won || 0,
-      interceptions: counts.interception || 0,
-      pcGoals,
-      discipline
-    };
-  }, [reportPlayerId, players, filteredEvents]);
+  useEffect(() => {
+    if (!selectedTeamId) return;
+    localStorage.setItem(`fieldhockey_statsheet_import_${selectedTeamId}`, JSON.stringify(importedRows));
+  }, [selectedTeamId, importedRows]);
 
   async function loadSeasons(userId) {
     setLoadingData(true);
     setStatus('Loading seasons...');
-    const { data, error } = await supabase.from('seasons').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+
+    const { data, error } = await supabase
+      .from('seasons')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
     if (error) {
       setStatus(`Failed to load seasons: ${error.message}`);
       setLoadingData(false);
       return;
     }
-    setSeasons(data || []);
-    if (!selectedSeasonId && data?.length) setSelectedSeasonId(data[0].id);
-    if (selectedSeasonId && !(data || []).find((season) => season.id === selectedSeasonId)) {
-      setSelectedSeasonId(data?.[0]?.id || '');
+
+    const seasonRows = data || [];
+    setSeasons(seasonRows);
+
+    const hasSelected = seasonRows.some((season) => season.id === selectedSeasonId);
+    if (!hasSelected) {
+      setSelectedSeasonId(seasonRows[0]?.id || '');
+      setSelectedTeamId('');
     }
+
     setStatus('');
     setLoadingData(false);
   }
@@ -461,10 +783,12 @@ function App() {
       return;
     }
 
-    setTeams(data || []);
-    if (!selectedTeamId && data?.length) setSelectedTeamId(data[0].id);
-    if (selectedTeamId && !(data || []).find((team) => team.id === selectedTeamId)) {
-      setSelectedTeamId(data?.[0]?.id || '');
+    const teamRows = data || [];
+    setTeams(teamRows);
+
+    const hasSelected = teamRows.some((team) => team.id === selectedTeamId);
+    if (!hasSelected) {
+      setSelectedTeamId(teamRows[0]?.id || '');
     }
   }
 
@@ -484,12 +808,21 @@ function App() {
       return;
     }
 
-    setPlayers(playersResult.data || []);
-    setMatches(matchesResult.data || []);
+    const playerRows = playersResult.data || [];
+    const matchRows = (matchesResult.data || []).sort((a, b) => {
+      if (!a.match_date && !b.match_date) return 0;
+      if (!a.match_date) return 1;
+      if (!b.match_date) return -1;
+      return b.match_date.localeCompare(a.match_date);
+    });
 
-    const matchIds = (matchesResult.data || []).map((match) => match.id);
+    setPlayers(playerRows);
+    setMatches(matchRows);
+
+    const matchIds = matchRows.map((match) => match.id);
     if (!matchIds.length) {
       setEvents([]);
+      setSelectedMatchId('');
       setStatus('');
       setLoadingData(false);
       return;
@@ -509,13 +842,18 @@ function App() {
     }
 
     setEvents(eventsData || []);
+
+    if (!selectedMatchId || !matchRows.some((match) => match.id === selectedMatchId)) {
+      setSelectedMatchId(matchRows[0]?.id || '');
+    }
+
     setStatus('');
     setLoadingData(false);
   }
 
   async function sendMagicLink(event) {
     event.preventDefault();
-    if (!email) {
+    if (!email.trim()) {
       setStatus('Enter an email address first.');
       return;
     }
@@ -524,7 +862,7 @@ function App() {
     setStatus('Sending magic link...');
 
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: email.trim(),
       options: { emailRedirectTo: window.location.origin }
     });
 
@@ -539,21 +877,21 @@ function App() {
 
   async function signOut() {
     await supabase.auth.signOut();
-    setSelectedSeasonId('');
-    setSelectedTeamId('');
-    setSelectedMatchId('');
     setStatus('Signed out.');
   }
 
   async function submitFeatureRequest() {
     if (!featureDialog || !session?.user?.id) return;
-    const subject = featureDialog.subject?.trim();
-    const message = featureDialog.message?.trim();
+    const subject = featureDialog.subject.trim();
+    const message = featureDialog.message.trim();
+
     if (!subject || !message) {
-      setFeatureDialog((prev) => (prev ? { ...prev, error: 'Please enter subject and message.' } : prev));
+      setFeatureDialog((prev) => (prev ? { ...prev, error: 'Please enter both subject and message.' } : prev));
       return;
     }
+
     setFeatureDialog((prev) => (prev ? { ...prev, submitting: true, error: '' } : prev));
+
     const { error } = await supabase.from('feature_requests').insert({
       user_id: session.user.id,
       season_id: selectedSeasonId || null,
@@ -563,45 +901,123 @@ function App() {
       message,
       status: 'new'
     });
+
     if (error) {
       setFeatureDialog((prev) =>
         prev ? { ...prev, submitting: false, error: `Could not submit request: ${error.message}` } : prev
       );
       return;
     }
+
     setFeatureDialog(null);
-    setStatus('Feature request submitted.');
+    setStatus('Feature request submitted. You can also email info@paulzuiderduin.com.');
   }
 
   async function createSeason(event) {
     event.preventDefault();
     if (!seasonForm.name.trim() || !session?.user?.id) return;
-    const { error } = await supabase.from('seasons').insert({ name: seasonForm.name.trim(), user_id: session.user.id });
+
+    const { error } = await supabase.from('seasons').insert({
+      user_id: session.user.id,
+      name: seasonForm.name.trim()
+    });
+
     if (error) {
       setStatus(`Failed to create season: ${error.message}`);
       return;
     }
+
     setSeasonForm(EMPTY_FORM);
+    await loadSeasons(session.user.id);
+  }
+
+  async function renameSeason(season) {
+    if (!session?.user?.id) return;
+    const nextName = window.prompt('Rename season', season.name);
+    if (!nextName || !nextName.trim()) return;
+
+    const { error } = await supabase
+      .from('seasons')
+      .update({ name: nextName.trim() })
+      .eq('id', season.id)
+      .eq('user_id', session.user.id);
+
+    if (error) {
+      setStatus(`Failed to rename season: ${error.message}`);
+      return;
+    }
+
+    await loadSeasons(session.user.id);
+  }
+
+  async function deleteSeason(seasonId) {
+    if (!session?.user?.id) return;
+    if (!window.confirm('Delete this season and all linked data?')) return;
+
+    const { error } = await supabase.from('seasons').delete().eq('id', seasonId).eq('user_id', session.user.id);
+    if (error) {
+      setStatus(`Failed to delete season: ${error.message}`);
+      return;
+    }
+
     await loadSeasons(session.user.id);
   }
 
   async function createTeam(event) {
     event.preventDefault();
     if (!teamForm.name.trim() || !session?.user?.id || !selectedSeasonId) return;
-    const { error } = await supabase
-      .from('teams')
-      .insert({ name: teamForm.name.trim(), season_id: selectedSeasonId, user_id: session.user.id });
+
+    const { error } = await supabase.from('teams').insert({
+      user_id: session.user.id,
+      season_id: selectedSeasonId,
+      name: teamForm.name.trim()
+    });
+
     if (error) {
       setStatus(`Failed to create team: ${error.message}`);
       return;
     }
+
     setTeamForm(EMPTY_FORM);
+    await loadTeams(session.user.id, selectedSeasonId);
+  }
+
+  async function renameTeam(team) {
+    if (!session?.user?.id) return;
+    const nextName = window.prompt('Rename team', team.name);
+    if (!nextName || !nextName.trim()) return;
+
+    const { error } = await supabase
+      .from('teams')
+      .update({ name: nextName.trim() })
+      .eq('id', team.id)
+      .eq('user_id', session.user.id);
+
+    if (error) {
+      setStatus(`Failed to rename team: ${error.message}`);
+      return;
+    }
+
+    await loadTeams(session.user.id, selectedSeasonId);
+  }
+
+  async function deleteTeam(teamId) {
+    if (!session?.user?.id) return;
+    if (!window.confirm('Delete this team and all linked data?')) return;
+
+    const { error } = await supabase.from('teams').delete().eq('id', teamId).eq('user_id', session.user.id);
+    if (error) {
+      setStatus(`Failed to delete team: ${error.message}`);
+      return;
+    }
+
     await loadTeams(session.user.id, selectedSeasonId);
   }
 
   async function createPlayer(event) {
     event.preventDefault();
-    if (!playerForm.name.trim() || !session?.user?.id || !selectedTeamId) return;
+    if (!playerForm.name.trim() || !selectedTeamId || !session?.user?.id) return;
+
     const payload = {
       user_id: session.user.id,
       team_id: selectedTeamId,
@@ -609,11 +1025,13 @@ function App() {
       number: playerForm.number ? Number(playerForm.number) : null,
       position: playerForm.position.trim() || null
     };
+
     const { error } = await supabase.from('players').insert(payload);
     if (error) {
       setStatus(`Failed to create player: ${error.message}`);
       return;
     }
+
     setPlayerForm(EMPTY_PLAYER_FORM);
     await loadTeamResources(session.user.id, selectedTeamId);
   }
@@ -639,13 +1057,16 @@ function App() {
       return;
     }
 
-    const payload = {
-      name: editingPlayerForm.name.trim(),
-      number: editingPlayerForm.number ? Number(editingPlayerForm.number) : null,
-      position: editingPlayerForm.position.trim() || null
-    };
+    const { error } = await supabase
+      .from('players')
+      .update({
+        name: editingPlayerForm.name.trim(),
+        number: editingPlayerForm.number ? Number(editingPlayerForm.number) : null,
+        position: editingPlayerForm.position.trim() || null
+      })
+      .eq('id', playerId)
+      .eq('user_id', session.user.id);
 
-    const { error } = await supabase.from('players').update(payload).eq('id', playerId).eq('user_id', session.user.id);
     if (error) {
       setStatus(`Failed to update player: ${error.message}`);
       return;
@@ -662,60 +1083,65 @@ function App() {
       setStatus(`Failed to delete player: ${error.message}`);
       return;
     }
-    if (selectedPlayerId === playerId) setSelectedPlayerId('');
+
     if (reportPlayerId === playerId) setReportPlayerId('');
+    if (selectedPlayerId === playerId) setSelectedPlayerId('');
     if (editingPlayerId === playerId) cancelEditPlayer();
+
     await loadTeamResources(session.user.id, selectedTeamId);
   }
 
   async function createMatch(event) {
     event.preventDefault();
     if (!matchForm.opponent.trim() || !session?.user?.id || !selectedTeamId) return;
-    const payload = {
+
+    const { error } = await supabase.from('matches').insert({
       user_id: session.user.id,
       team_id: selectedTeamId,
       opponent: matchForm.opponent.trim(),
       match_date: matchForm.match_date || null
-    };
-    const { error } = await supabase.from('matches').insert(payload);
+    });
+
     if (error) {
       setStatus(`Failed to create match: ${error.message}`);
       return;
     }
+
     setMatchForm(EMPTY_MATCH_FORM);
     await loadTeamResources(session.user.id, selectedTeamId);
   }
 
   async function deleteMatch(matchId) {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id || !selectedTeamId) return;
+
     const { error } = await supabase.from('matches').delete().eq('id', matchId).eq('user_id', session.user.id);
     if (error) {
       setStatus(`Failed to delete match: ${error.message}`);
       return;
     }
+
     await loadTeamResources(session.user.id, selectedTeamId);
   }
 
   async function addEvent(actionKey) {
     if (!session?.user?.id || !selectedTeamId) {
-      setStatus('Select a season and team first.');
+      setStatus('Select season and team first.');
       return;
     }
     if (!selectedMatchId) {
-      setStatus('Create or select a match before logging events.');
+      setStatus('Select a match before logging events.');
       return;
     }
 
-    const payload = {
+    const { error } = await supabase.from('events').insert({
       user_id: session.user.id,
       match_id: selectedMatchId,
       player_id: selectedPlayerId || null,
       event_type: actionKey,
       period,
       time_left: clock
-    };
+    });
 
-    const { error } = await supabase.from('events').insert(payload);
     if (error) {
       setStatus(`Failed to add event: ${error.message}`);
       return;
@@ -724,71 +1150,237 @@ function App() {
     await loadTeamResources(session.user.id, selectedTeamId);
   }
 
+  async function deleteEvent(eventId) {
+    if (!session?.user?.id || !selectedTeamId) return;
+    const { error } = await supabase.from('events').delete().eq('id', eventId).eq('user_id', session.user.id);
+    if (error) {
+      setStatus(`Failed to delete event: ${error.message}`);
+      return;
+    }
+    await loadTeamResources(session.user.id, selectedTeamId);
+  }
+
+  function changeClockBy(secondsDelta) {
+    const current = parseClockToSeconds(clock, settings.quarterLength);
+    const next = Math.max(0, Math.min(settings.quarterLength * 60, current + secondsDelta));
+    setClock(formatSecondsAsClock(next));
+  }
+
   function toggleModule(moduleName) {
-    if (moduleName === 'Home') return;
-    setSettings((prev) => {
-      const visibleModules = {
+    const moduleConfig = MODULES.find((module) => module.name === moduleName);
+    if (moduleConfig?.alwaysVisible) return;
+
+    setSettings((prev) => ({
+      ...prev,
+      visibleModules: {
         ...prev.visibleModules,
         [moduleName]: !prev.visibleModules[moduleName]
-      };
-      return { ...prev, visibleModules };
-    });
+      }
+    }));
+  }
+
+  function exportStatSheetCsv() {
+    const headers = [
+      'source',
+      'opponent',
+      'match_date',
+      'goals',
+      'assists',
+      'shots_total',
+      'shots_on_target_total',
+      'shot_accuracy',
+      'goal_conversion',
+      'pc_won',
+      'pc_goals',
+      'pc_conversion',
+      'ps_won',
+      'ps_scored',
+      'ps_conversion',
+      'circle_entries',
+      'saves',
+      'interceptions',
+      'tackles_won',
+      'turnover_won',
+      'turnover_lost',
+      'turnover_balance',
+      'green_cards',
+      'yellow_cards',
+      'red_cards',
+      'discipline',
+      'control_index',
+      'finishing_index',
+      'transition_index',
+      'discipline_index'
+    ];
+
+    const rows = statRows.map((row) =>
+      [
+        row.source,
+        row.opponent,
+        row.matchDate,
+        row.goals,
+        row.assists,
+        row.shotsTotal,
+        row.shotsOnTargetTotal,
+        row.shotAccuracy,
+        row.goalConversion,
+        row.pcWon,
+        row.pcGoals,
+        row.pcConversion,
+        row.psWon,
+        row.psScored,
+        row.psConversion,
+        row.circleEntries,
+        row.saves,
+        row.interceptions,
+        row.tacklesWon,
+        row.turnoverWon,
+        row.turnoverLost,
+        row.turnoverBalance,
+        row.greenCards,
+        row.yellowCards,
+        row.redCards,
+        row.discipline,
+        row.controlIndex,
+        row.finishingIndex,
+        row.transitionIndex,
+        row.disciplineIndex
+      ].map(toCsvCell)
+    );
+
+    const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+    downloadTextFile('fieldhockey_stat_sheet.csv', csv, 'text/csv;charset=utf-8');
+  }
+
+  function exportStatSheetTemplate() {
+    const headers = [
+      'opponent',
+      'match_date',
+      'goals',
+      'assists',
+      'shots_total',
+      'shots_on_target_total',
+      'pc_won',
+      'pc_goals',
+      'ps_won',
+      'ps_scored',
+      'circle_entries',
+      'saves',
+      'interceptions',
+      'tackles_won',
+      'turnover_won',
+      'turnover_lost',
+      'green_cards',
+      'yellow_cards',
+      'red_cards'
+    ];
+    const sample = ['Example Club', '2026-03-01', '2', '1', '11', '6', '4', '1', '1', '1', '13', '3', '5', '4', '7', '5', '1', '0', '0'];
+    const csv = `${headers.join(',')}\n${sample.join(',')}\n`;
+    downloadTextFile('fieldhockey_stat_sheet_template.csv', csv, 'text/csv;charset=utf-8');
+  }
+
+  function onImportFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = parseStatSheetCsv(String(reader.result || ''));
+      setImportReport(result);
+      if (result.rows.length) {
+        setImportedRows((prev) => [...result.rows, ...prev]);
+        setStatus(`Imported ${result.rows.length} stat sheet row(s).`);
+      } else {
+        setStatus('No valid rows found in import.');
+      }
+    };
+    reader.onerror = () => {
+      setStatus('Could not read import file.');
+    };
+
+    reader.readAsText(file);
+    event.target.value = '';
+  }
+
+  function clearImportedRows() {
+    if (!window.confirm('Clear imported stat sheet rows for this team?')) return;
+    setImportedRows([]);
+    setImportReport(null);
+    setStatus('Imported stat sheet rows cleared.');
+  }
+
+  function openImportDialog() {
+    hiddenImportInputRef.current?.click();
   }
 
   function renderHome() {
+    const activeMatch = matches.find((match) => match.id === selectedMatchId);
+
     return (
       <>
         <section className="panel">
-          <h2>Field Hockey Hub</h2>
-          <p className="muted">
-            Track widely used match KPIs in one flow: shots, shots on target, goals, penalty corners, circle entries,
-            defensive actions, turnovers, and cards.
-          </p>
+          <div className="section-header">
+            <h2>Field Hockey Hub</h2>
+            <p className="muted">
+              Fast match logging + stat sheet output. Use Event Tracker live, then review season KPIs in Stat Sheet and Analytics.
+            </p>
+          </div>
+
           <div className="kpi-grid">
             <article className="kpi-card">
               <StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} />
-              <strong>{kpis.goals}</strong>
+              <strong>{analyticsSummary.goals}</strong>
             </article>
             <article className="kpi-card">
-              <StatLabel label="Shots On Target" tooltip={statTooltip('shots_on_target')} enabled={settings.showStatTooltips} />
-              <strong>{kpis.shotsOnTarget}</strong>
+              <StatLabel
+                label="Shots On Target"
+                tooltip={statTooltip('shots_on_target_total')}
+                enabled={settings.showStatTooltips}
+              />
+              <strong>{analyticsSummary.shotsOnTargetTotal}</strong>
             </article>
             <article className="kpi-card">
               <StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} />
-              <strong>{kpis.shotAccuracy}</strong>
+              <strong>{analyticsSummary.shotAccuracy}%</strong>
             </article>
             <article className="kpi-card">
               <StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} />
-              <strong>{kpis.pcConversion}</strong>
+              <strong>{analyticsSummary.pcConversion}%</strong>
             </article>
             <article className="kpi-card">
-              <StatLabel label="Turnover Balance" tooltip={statTooltip('turnover_balance')} enabled={settings.showStatTooltips} />
-              <strong>{kpis.turnoverBalance}</strong>
+              <StatLabel
+                label="Turnover Balance"
+                tooltip={statTooltip('turnover_balance')}
+                enabled={settings.showStatTooltips}
+              />
+              <strong>{analyticsSummary.turnoverBalance}</strong>
             </article>
             <article className="kpi-card">
-              <StatLabel label="Cards" tooltip={statTooltip('cards')} enabled={settings.showStatTooltips} />
-              <strong>{kpis.greenCards + kpis.yellowCards + kpis.redCards}</strong>
+              <StatLabel label="Discipline" tooltip={statTooltip('discipline')} enabled={settings.showStatTooltips} />
+              <strong>{analyticsSummary.discipline}</strong>
             </article>
           </div>
         </section>
 
         <section className="panel two-col">
           <article>
-            <h3>Getting Started</h3>
-            <ol>
-              <li>Create a season and team in the top bar.</li>
-              <li>Add players in Roster.</li>
-              <li>Create a match in Matches and select it.</li>
-              <li>Log actions from Event Tracker.</li>
-              <li>Review trends in Analytics.</li>
-            </ol>
+            <h3>Workspace</h3>
+            <p className="muted">Season: {selectedSeason?.name || '—'}</p>
+            <p className="muted">Team: {selectedTeam?.name || '—'}</p>
+            <p className="muted">Selected match: {activeMatch ? `${activeMatch.opponent} ${activeMatch.match_date || ''}` : '—'}</p>
+            <p className="muted">Players: {players.length}</p>
+            <p className="muted">Matches: {matches.length}</p>
+            <p className="muted">Events: {events.length}</p>
           </article>
           <article>
-            <h3>Current Scope</h3>
-            <p className="muted">Analytics scope: {selectedMatchId ? 'Selected match' : 'Whole selected team + season'}</p>
-            <p className="muted">Players in roster: {players.length}</p>
-            <p className="muted">Matches logged: {matches.length}</p>
-            <p className="muted">Events logged: {events.length}</p>
+            <h3>Quick Start</h3>
+            <ol>
+              <li>Create/select a season and team from the top bar.</li>
+              <li>Add players in Roster.</li>
+              <li>Create match in Matches and select it.</li>
+              <li>Log events in Event Tracker during the match.</li>
+              <li>Open Stat Sheet for match/season output and export.</li>
+            </ol>
           </article>
         </section>
       </>
@@ -800,7 +1392,7 @@ function App() {
       <section className="panel">
         <div className="section-header">
           <h2>Matches</h2>
-          <p className="muted">Create matches for the selected season + team.</p>
+          <p className="muted">Create and manage matches for the selected season + team (newest first).</p>
         </div>
 
         <form className="inline-form" onSubmit={createMatch}>
@@ -830,12 +1422,12 @@ function App() {
             </thead>
             <tbody>
               {matches.map((match) => {
-                const count = events.filter((event) => event.match_id === match.id).length;
+                const eventCount = events.filter((entry) => entry.match_id === match.id).length;
                 return (
                   <tr key={match.id} className={selectedMatchId === match.id ? 'row-active' : ''}>
                     <td>{match.opponent}</td>
                     <td>{match.match_date || '-'}</td>
-                    <td>{count}</td>
+                    <td>{eventCount}</td>
                     <td className="row-actions">
                       <button type="button" className="secondary" onClick={() => setSelectedMatchId(match.id)}>
                         Select
@@ -859,7 +1451,7 @@ function App() {
       <section className="panel">
         <div className="section-header">
           <h2>Roster</h2>
-          <p className="muted">One shared roster per selected team.</p>
+          <p className="muted">Shared roster across all field hockey modules.</p>
         </div>
 
         <form className="inline-form" onSubmit={createPlayer}>
@@ -904,7 +1496,6 @@ function App() {
                           type="number"
                           value={editingPlayerForm.number}
                           onChange={(event) => setEditingPlayerForm((prev) => ({ ...prev, number: event.target.value }))}
-                          placeholder="#"
                         />
                       ) : (
                         player.number ?? '-'
@@ -962,49 +1553,16 @@ function App() {
   }
 
   function renderEventTracker() {
+    const activeActionGroup = ACTION_GROUPS.find((group) => group.key === activeActionGroupKey) || ACTION_GROUPS[0];
+
     return (
-      <section className="panel">
-        <div className="section-header">
+      <section className="panel tracker-panel">
+        <div className="section-header compact">
           <h2>Event Tracker</h2>
-          <p className="muted">Select player + action. Period and time remain until you change them.</p>
+          <p className="muted">Live mode: period and time stay fixed until you change them.</p>
         </div>
 
-        <div className="tracker-controls">
-          <label>
-            Period
-            <select value={period} onChange={(event) => setPeriod(Number(event.target.value))}>
-              <option value={1}>Q1</option>
-              <option value={2}>Q2</option>
-              <option value={3}>Q3</option>
-              <option value={4}>Q4</option>
-            </select>
-          </label>
-          <label>
-            Time Left
-            <div className="clock-input">
-              <select
-                value={clockParts.minutes}
-                onChange={(event) => setClock(`${event.target.value}:${clockParts.seconds}`)}
-              >
-                {minuteOptions.map((minute) => (
-                  <option key={minute} value={minute}>
-                    {minute}
-                  </option>
-                ))}
-              </select>
-              <span>:</span>
-              <select
-                value={clockParts.seconds}
-                onChange={(event) => setClock(`${clockParts.minutes}:${event.target.value}`)}
-              >
-                {secondOptions.map((second) => (
-                  <option key={second} value={second}>
-                    {second}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </label>
+        <div className="tracker-toolbar">
           <label>
             Match
             <select value={selectedMatchId} onChange={(event) => setSelectedMatchId(event.target.value)}>
@@ -1016,77 +1574,272 @@ function App() {
               ))}
             </select>
           </label>
+
+          <label>
+            Period
+            <select value={period} onChange={(event) => setPeriod(Number(event.target.value))}>
+              <option value={1}>Q1</option>
+              <option value={2}>Q2</option>
+              <option value={3}>Q3</option>
+              <option value={4}>Q4</option>
+            </select>
+          </label>
+
+          <label>
+            Time Left
+            <div className="clock-input split">
+              <select value={clockParts.minutes} onChange={(event) => setClock(`${event.target.value}:${clockParts.seconds}`)}>
+                {minuteOptions.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {minute}
+                  </option>
+                ))}
+              </select>
+              <span>:</span>
+              <select value={clockParts.seconds} onChange={(event) => setClock(`${clockParts.minutes}:${event.target.value}`)}>
+                {secondOptions.map((second) => (
+                  <option key={second} value={second}>
+                    {second}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </label>
+
+          <div className="time-stepper" aria-label="Adjust time left">
+            <button type="button" onClick={() => changeClockBy(10)}>
+              +10s
+            </button>
+            <button type="button" onClick={() => changeClockBy(1)}>
+              +1s
+            </button>
+            <button type="button" onClick={() => changeClockBy(-1)}>
+              -1s
+            </button>
+            <button type="button" onClick={() => changeClockBy(-10)}>
+              -10s
+            </button>
+          </div>
         </div>
 
-        <div className="clock-presets">
+        <div className="clock-presets compact">
           {clockPresets.map((preset) => (
-            <button key={preset} type="button" onClick={() => setClock(preset)} className={clock === preset ? 'preset active' : 'preset'}>
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setClock(preset)}
+              className={clock === preset ? 'preset active' : 'preset'}
+            >
               {preset}
             </button>
           ))}
         </div>
 
-        <h3>Select Player</h3>
-        <div className="player-grid">
-          {players.map((player) => (
-            <button
-              key={player.id}
-              type="button"
-              onClick={() => setSelectedPlayerId(player.id)}
-              className={`player-chip ${selectedPlayerId === player.id ? 'selected' : ''}`}
-            >
-              #{player.number ?? '-'} {player.name}
-            </button>
-          ))}
+        <div className="tracker-compact-grid">
+          <article>
+            <h3>Select Player</h3>
+            <div className="player-strip">
+              {players.map((player) => (
+                <button
+                  key={player.id}
+                  type="button"
+                  onClick={() => setSelectedPlayerId(player.id)}
+                  className={`player-chip ${selectedPlayerId === player.id ? 'selected' : ''}`}
+                >
+                  #{player.number ?? '-'} {player.name}
+                </button>
+              ))}
+            </div>
+          </article>
+
+          <article>
+            <h3>Log Action</h3>
+            <div className="action-group-tabs">
+              {ACTION_GROUPS.map((group) => (
+                <button
+                  key={group.key}
+                  type="button"
+                  className={activeActionGroup.key === group.key ? 'active' : ''}
+                  onClick={() => setActiveActionGroupKey(group.key)}
+                >
+                  {group.title}
+                </button>
+              ))}
+            </div>
+            <div className="action-grid mobile-dense">
+              {activeActionGroup.actions.map((action) => (
+                <button
+                  key={action.key}
+                  type="button"
+                  className={`action-button ${action.className}`}
+                  title={settings.showStatTooltips ? action.tooltip : ''}
+                  onClick={() => addEvent(action.key)}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </article>
         </div>
 
-        <h3>Log Action</h3>
-        <div className="action-groups">
-          {ACTION_GROUPS.map((group) => (
-            <article key={group.title} className="action-group">
-              <h4>{group.title}</h4>
-              <div className="action-grid">
-                {group.actions.map((action) => (
-                  <button
-                    key={action.key}
-                    type="button"
-                    className={`action-button ${action.className}`}
-                    onClick={() => addEvent(action.key)}
-                  >
-                    {action.label}
-                  </button>
+        <details className="event-log" open>
+          <summary>Latest events ({selectedMatchEvents.length})</summary>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Player</th>
+                  <th>Action</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedMatchEvents.slice(0, 30).map((event) => {
+                  const player = players.find((entry) => entry.id === event.player_id);
+                  return (
+                    <tr key={event.id}>
+                      <td>
+                        Q{event.period} - {event.time_left || '-'}
+                      </td>
+                      <td>{player ? `#${player.number ?? '-'} ${player.name}` : '-'}</td>
+                      <td>{event.event_type.replaceAll('_', ' ')}</td>
+                      <td className="row-actions">
+                        <button type="button" className="danger" onClick={() => deleteEvent(event.id)}>
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+    );
+  }
+
+  function renderStatSheet() {
+    return (
+      <section className="panel">
+        <div className="section-header">
+          <h2>Stat Sheet</h2>
+          <p className="muted">Primary output from scoring data, with optional CSV imports for external sheets.</p>
+        </div>
+
+        <div className="inline-actions">
+          <label>
+            Source
+            <select value={statSheetSource} onChange={(event) => setStatSheetSource(event.target.value)}>
+              <option value="all">Generated + Imported</option>
+              <option value="generated">Generated only</option>
+              <option value="imported">Imported only</option>
+            </select>
+          </label>
+          <button type="button" className="secondary" onClick={exportStatSheetCsv}>
+            Export CSV
+          </button>
+          <button type="button" className="secondary" onClick={exportStatSheetTemplate}>
+            Download Template
+          </button>
+          <button type="button" className="secondary" onClick={openImportDialog}>
+            Import CSV
+          </button>
+          <button type="button" className="danger" onClick={clearImportedRows}>
+            Clear Imports
+          </button>
+          <input ref={hiddenImportInputRef} type="file" accept=".csv,text/csv" onChange={onImportFileChange} hidden />
+        </div>
+
+        {importReport ? (
+          <div className="import-report">
+            <h3>Import report</h3>
+            <p className="muted">
+              Accepted {importReport.accepted} / {importReport.total} rows.
+            </p>
+            {importReport.skipped.length ? (
+              <ul>
+                {importReport.skipped.slice(0, 10).map((row) => (
+                  <li key={`${row.line}_${row.reason}`}>
+                    Line {row.line}: {row.reason}
+                  </li>
                 ))}
-              </div>
-            </article>
-          ))}
+              </ul>
+            ) : (
+              <p className="muted">No rejected rows.</p>
+            )}
+          </div>
+        ) : null}
+
+        <div className="kpi-grid">
+          <article className="kpi-card">
+            <span>Matches</span>
+            <strong>{statSummary.matches}</strong>
+          </article>
+          <article className="kpi-card">
+            <StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} />
+            <strong>{statSummary.goals}</strong>
+          </article>
+          <article className="kpi-card">
+            <StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} />
+            <strong>{statSummary.shotAccuracy}%</strong>
+          </article>
+          <article className="kpi-card">
+            <StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} />
+            <strong>{statSummary.pcConversion}%</strong>
+          </article>
+          <article className="kpi-card">
+            <StatLabel
+              label="Turnover Balance"
+              tooltip={statTooltip('turnover_balance')}
+              enabled={settings.showStatTooltips}
+            />
+            <strong>{statSummary.turnoverBalance}</strong>
+          </article>
+          <article className="kpi-card">
+            <StatLabel label="Discipline" tooltip={statTooltip('discipline')} enabled={settings.showStatTooltips} />
+            <strong>{statSummary.discipline}</strong>
+          </article>
         </div>
 
-        <h3>Latest Events</h3>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Player</th>
-                <th>Action</th>
-                <th>Match</th>
+                <th>Source</th>
+                <th>Opponent</th>
+                <th>Date</th>
+                <th>G</th>
+                <th>S</th>
+                <th>SOT</th>
+                <th>Acc%</th>
+                <th>PC Won</th>
+                <th>PC G</th>
+                <th>PC%</th>
+                <th>TO +/-</th>
+                <th>Cards</th>
               </tr>
             </thead>
             <tbody>
-              {filteredEvents.slice(0, 20).map((event) => {
-                const player = players.find((item) => item.id === event.player_id);
-                const match = matches.find((item) => item.id === event.match_id);
-                return (
-                  <tr key={event.id}>
-                    <td>
-                      Q{event.period} - {event.time_left || '-'}
-                    </td>
-                    <td>{player ? `#${player.number ?? '-'} ${player.name}` : '-'}</td>
-                    <td>{event.event_type.replaceAll('_', ' ')}</td>
-                    <td>{match?.opponent || '-'}</td>
-                  </tr>
-                );
-              })}
+              {statRows.map((row) => (
+                <tr key={row.rowId}>
+                  <td>
+                    <span className={`source-badge ${row.source}`}>{row.source}</span>
+                  </td>
+                  <td>{row.opponent}</td>
+                  <td>{row.matchDate || '-'}</td>
+                  <td>{row.goals ?? '-'}</td>
+                  <td>{row.shotsTotal ?? '-'}</td>
+                  <td>{row.shotsOnTargetTotal ?? '-'}</td>
+                  <td>{row.shotAccuracy ?? '-'}%</td>
+                  <td>{row.pcWon ?? '-'}</td>
+                  <td>{row.pcGoals ?? '-'}</td>
+                  <td>{row.pcConversion ?? '-'}%</td>
+                  <td>{row.turnoverBalance ?? '-'}</td>
+                  <td>{row.discipline ?? '-'}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1098,64 +1851,59 @@ function App() {
     return (
       <>
         <section className="panel">
-          <div className="section-header">
-            <h2>Analytics</h2>
-            <p className="muted">Core KPI block with advanced trends and player report card.</p>
+          <div className="section-header inline-between">
+            <div>
+              <h2>Analytics</h2>
+              <p className="muted">Review scope-based KPIs and player output.</p>
+            </div>
+            <label>
+              Scope
+              <select value={analysisScope} onChange={(event) => setAnalysisScope(event.target.value)}>
+                <option value="match">Selected match</option>
+                <option value="season">Selected team + season</option>
+              </select>
+            </label>
           </div>
 
           <div className="kpi-grid">
-            <article className="kpi-card"><StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} /><strong>{kpis.goals}</strong></article>
-            <article className="kpi-card"><StatLabel label="Assists" tooltip={statTooltip('assists')} enabled={settings.showStatTooltips} /><strong>{kpis.assists}</strong></article>
-            <article className="kpi-card"><StatLabel label="Shots" tooltip={statTooltip('shots')} enabled={settings.showStatTooltips} /><strong>{kpis.shots}</strong></article>
-            <article className="kpi-card"><StatLabel label="Shots On Target" tooltip={statTooltip('shots_on_target')} enabled={settings.showStatTooltips} /><strong>{kpis.shotsOnTarget}</strong></article>
-            <article className="kpi-card"><StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} /><strong>{kpis.shotAccuracy}</strong></article>
-            <article className="kpi-card"><StatLabel label="Goal Conversion" tooltip={statTooltip('goal_conversion')} enabled={settings.showStatTooltips} /><strong>{kpis.goalConversion}</strong></article>
-            <article className="kpi-card"><StatLabel label="PC Won" tooltip={statTooltip('pc_won')} enabled={settings.showStatTooltips} /><strong>{kpis.pcWon}</strong></article>
-            <article className="kpi-card"><StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} /><strong>{kpis.pcConversion}</strong></article>
-            <article className="kpi-card"><StatLabel label="PS Conversion" tooltip={statTooltip('ps_conversion')} enabled={settings.showStatTooltips} /><strong>{kpis.psConversion}</strong></article>
-            <article className="kpi-card"><StatLabel label="Circle Entries" tooltip={statTooltip('circle_entries')} enabled={settings.showStatTooltips} /><strong>{kpis.circleEntries}</strong></article>
-            <article className="kpi-card"><StatLabel label="Saves" tooltip={statTooltip('saves')} enabled={settings.showStatTooltips} /><strong>{kpis.saves}</strong></article>
-            <article className="kpi-card"><StatLabel label="Turnover Balance" tooltip={statTooltip('turnover_balance')} enabled={settings.showStatTooltips} /><strong>{kpis.turnoverBalance}</strong></article>
-          </div>
-        </section>
-
-        <section className="panel">
-          <h3>Match Trend Overview</h3>
-          <div className="trend-list">
-            {matchTrends.map((row) => (
-              <article key={row.matchId} className="trend-row">
-                <div>
-                  <p className="trend-title">{row.opponent}</p>
-                  <p className="muted small">{row.date || 'No date'}</p>
-                </div>
-                <div className="trend-metrics">
-                  <span>G {row.goals}</span>
-                  <span>S {row.shots}</span>
-                  <span>SOT {row.onTarget}</span>
-                  <span>PC% {row.pcConversionNum}%</span>
-                </div>
-                <div className="trend-bars">
-                  <div className="bar-wrap">
-                    <span>Shots</span>
-                    <div className="bar-bg"><div className="bar-fill shots" style={{ width: `${Math.round((row.shots / trendMax.maxShots) * 100)}%` }} /></div>
-                  </div>
-                  <div className="bar-wrap">
-                    <span>Goals</span>
-                    <div className="bar-bg"><div className="bar-fill goals" style={{ width: `${Math.round((row.goals / trendMax.maxGoals) * 100)}%` }} /></div>
-                  </div>
-                  <div className="bar-wrap">
-                    <span>Entries</span>
-                    <div className="bar-bg"><div className="bar-fill entries" style={{ width: `${Math.round((row.circleEntries / trendMax.maxEntries) * 100)}%` }} /></div>
-                  </div>
-                </div>
-              </article>
-            ))}
+            <article className="kpi-card"><StatLabel label="Goals" tooltip={statTooltip('goals')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.goals}</strong></article>
+            <article className="kpi-card"><StatLabel label="Assists" tooltip={statTooltip('assists')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.assists}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shots" tooltip={statTooltip('shots_total')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.shotsTotal}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shots On Target" tooltip={statTooltip('shots_on_target_total')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.shotsOnTargetTotal}</strong></article>
+            <article className="kpi-card"><StatLabel label="Shot Accuracy" tooltip={statTooltip('shot_accuracy')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.shotAccuracy}%</strong></article>
+            <article className="kpi-card"><StatLabel label="Goal Conversion" tooltip={statTooltip('goal_conversion')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.goalConversion}%</strong></article>
+            <article className="kpi-card"><StatLabel label="PC Won" tooltip={statTooltip('pc_won')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.pcWon}</strong></article>
+            <article className="kpi-card"><StatLabel label="PC Conversion" tooltip={statTooltip('pc_conversion')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.pcConversion}%</strong></article>
+            <article className="kpi-card"><StatLabel label="PS Conversion" tooltip={statTooltip('ps_conversion')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.psConversion}%</strong></article>
+            <article className="kpi-card"><StatLabel label="Circle Entries" tooltip={statTooltip('circle_entries')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.circleEntries}</strong></article>
+            <article className="kpi-card"><StatLabel label="Saves" tooltip={statTooltip('saves')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.saves}</strong></article>
+            <article className="kpi-card"><StatLabel label="Turnover Balance" tooltip={statTooltip('turnover_balance')} enabled={settings.showStatTooltips} /><strong>{analyticsSummary.turnoverBalance}</strong></article>
           </div>
         </section>
 
         <section className="panel two-col">
           <article>
-            <h3>Player Report Card</h3>
+            <h3>Match trends</h3>
+            <div className="trend-list">
+              {matchRows.map((row) => (
+                <article key={row.rowId} className="trend-row">
+                  <div>
+                    <p className="trend-title">{row.opponent}</p>
+                    <p className="muted small">{row.matchDate || 'No date'}</p>
+                  </div>
+                  <div className="trend-metrics">
+                    <span>G {row.goals}</span>
+                    <span>S {row.shotsTotal}</span>
+                    <span>SOT {row.shotsOnTargetTotal}</span>
+                    <span>PC% {row.pcConversion}%</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+
+          <article>
+            <h3>Player report card</h3>
             <select value={reportPlayerId} onChange={(event) => setReportPlayerId(event.target.value)}>
               <option value="">Select player</option>
               {players.map((player) => (
@@ -1168,31 +1916,21 @@ function App() {
               <div className="report-grid">
                 <p><strong>Player:</strong> #{playerReport.player.number ?? '-'} {playerReport.player.name}</p>
                 <p><strong>Events:</strong> {playerReport.events}</p>
-                <p><strong>Goals + Assists:</strong> {playerReport.contributions}</p>
-                <p><strong>Shots / On Target:</strong> {playerReport.shots} / {playerReport.onTarget}</p>
-                <p><strong>Shot Accuracy:</strong> {playerReport.shotAccuracy}</p>
+                <p><strong>Contributions:</strong> {playerReport.contributions}</p>
+                <p><strong>Shots / SOT:</strong> {playerReport.shotsTotal} / {playerReport.shotsOnTargetTotal}</p>
+                <p><strong>Shot Accuracy:</strong> {playerReport.shotAccuracy}%</p>
                 <p><strong>Circle Entries:</strong> {playerReport.circleEntries}</p>
-                <p><strong>Tackles + Interceptions:</strong> {playerReport.tackles + playerReport.interceptions}</p>
-                <p><strong>PC Goals:</strong> {playerReport.pcGoals}</p>
+                <p><strong>Tackles + Interceptions:</strong> {playerReport.tacklesWon + playerReport.interceptions}</p>
+                <p><strong>Discipline:</strong> {playerReport.discipline}</p>
               </div>
             ) : (
               <p className="muted">No player selected.</p>
             )}
           </article>
-
-          <article>
-            <h3>Discipline & Control Index</h3>
-            <div className="kpi-grid compact">
-              <article className="kpi-card"><StatLabel label="Control (SOT%)" tooltip={statTooltip('control_index')} enabled={settings.showStatTooltips} /><strong>{kpis.shotAccuracyNum}</strong></article>
-              <article className="kpi-card"><StatLabel label="Finishing (Goal%)" tooltip={statTooltip('finishing_index')} enabled={settings.showStatTooltips} /><strong>{kpis.goalConversionNum}</strong></article>
-              <article className="kpi-card"><StatLabel label="Transition" tooltip={statTooltip('transition_index')} enabled={settings.showStatTooltips} /><strong>{kpis.turnoverBalance}</strong></article>
-              <article className="kpi-card"><StatLabel label="Discipline" tooltip={statTooltip('discipline_index')} enabled={settings.showStatTooltips} /><strong>{Math.max(0, 100 - (kpis.greenCards + kpis.yellowCards * 2 + kpis.redCards * 4) * 8)}</strong></article>
-            </div>
-          </article>
         </section>
 
         <section className="panel">
-          <h3>Top Player Output</h3>
+          <h3>Top output players</h3>
           <div className="table-wrap">
             <table>
               <thead>
@@ -1222,27 +1960,109 @@ function App() {
     );
   }
 
+  function renderHelp() {
+    return (
+      <section className="panel">
+        <h2>Help</h2>
+        <p className="muted">Core workflow and action legend for new users.</p>
+
+        <div className="two-col">
+          <article>
+            <h3>Getting started</h3>
+            <ol>
+              <li>Select or create season + team in the top bar.</li>
+              <li>Build roster in Roster.</li>
+              <li>Create a match in Matches and select it.</li>
+              <li>Track events in Event Tracker (live).</li>
+              <li>Open Stat Sheet for match/season output and export/import.</li>
+            </ol>
+          </article>
+          <article>
+            <h3>Magic link login</h3>
+            <p className="muted">You log in with Supabase email magic links.</p>
+            <p className="muted">Sender (default): <code>no-reply@mail.app.supabase.io</code></p>
+            <p className="muted">Subject often includes: <code>Confirm Your Signup</code> or magic link confirmation.</p>
+            <p className="muted">If you do not see it, check spam/junk folder.</p>
+          </article>
+        </div>
+
+        <h3>Action legend</h3>
+        <div className="legend-grid">
+          {ACTION_GROUPS.flatMap((group) =>
+            group.actions.map((action) => (
+              <div key={action.key} className="legend-item">
+                <span className={`legend-dot ${action.className}`} />
+                <div>
+                  <strong>{action.label}</strong>
+                  <p>{action.tooltip}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderPrivacy() {
+    return (
+      <section className="panel">
+        <h2>Privacy</h2>
+        <p className="muted">
+          This app stores account/workspace data in Supabase so your seasons, teams, players, matches, and events stay available across devices.
+        </p>
+        <ul>
+          <li>Authentication uses email magic links via Supabase Auth.</li>
+          <li>Feature requests are stored in Supabase and linked to your user id.</li>
+          <li>Imported stat sheet rows are stored in your browser (local storage), per team.</li>
+          <li>Analytics (GA4) only starts after explicit consent through the banner.</li>
+          <li>Questions: info@paulzuiderduin.com</li>
+        </ul>
+      </section>
+    );
+  }
+
+  function renderChangelog() {
+    return (
+      <section className="panel">
+        <h2>Changelog</h2>
+        <div className="changelog-list">
+          <article>
+            <h3>Current update</h3>
+            <ul>
+              <li>Stat Sheet module added with CSV export and import report panel.</li>
+              <li>Event Tracker redesigned for faster live usage (compact mobile-first layout).</li>
+              <li>Workspace state now persists on refresh (module, season, team, match, scope).</li>
+              <li>Help, privacy, and changelog modules added for product parity with Waterpolo Hub.</li>
+              <li>Feature request modal now includes direct support email fallback.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    );
+  }
+
   function renderSettings() {
     return (
       <section className="panel">
         <div className="section-header">
           <h2>Settings</h2>
-          <p className="muted">Control module visibility and event defaults.</p>
+          <p className="muted">Control module visibility, tooltips, and defaults.</p>
         </div>
 
         <div className="settings-grid">
           <article>
             <h3>Visible Modules</h3>
             <div className="toggle-list">
-              {ALL_MODULES.map((moduleName) => (
-                <label key={moduleName} className="toggle-item">
+              {MODULES.map((module) => (
+                <label key={module.name} className="toggle-item">
                   <input
                     type="checkbox"
-                    checked={settings.visibleModules[moduleName] !== false}
-                    disabled={moduleName === 'Home'}
-                    onChange={() => toggleModule(moduleName)}
+                    checked={module.alwaysVisible ? true : settings.visibleModules[module.name] !== false}
+                    disabled={module.alwaysVisible}
+                    onChange={() => toggleModule(module.name)}
                   />
-                  <span>{moduleName}</span>
+                  <span>{module.name}</span>
                 </label>
               ))}
             </div>
@@ -1255,7 +2075,10 @@ function App() {
               <select
                 value={settings.quarterLength}
                 onChange={(event) =>
-                  setSettings((prev) => ({ ...prev, quarterLength: Number(event.target.value) }))
+                  setSettings((prev) => ({
+                    ...prev,
+                    quarterLength: Number(event.target.value)
+                  }))
                 }
               >
                 <option value={10}>10</option>
@@ -1263,15 +2086,35 @@ function App() {
                 <option value={15}>15</option>
               </select>
             </label>
+
+            <label className="stacked-label">
+              Analytics default scope
+              <select
+                value={settings.defaultAnalysisScope}
+                onChange={(event) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    defaultAnalysisScope: event.target.value
+                  }))
+                }
+              >
+                <option value="match">Selected match</option>
+                <option value="season">Selected team + season</option>
+              </select>
+            </label>
+
             <label className="toggle-item">
               <input
                 type="checkbox"
                 checked={settings.showStatTooltips}
                 onChange={(event) =>
-                  setSettings((prev) => ({ ...prev, showStatTooltips: event.target.checked }))
+                  setSettings((prev) => ({
+                    ...prev,
+                    showStatTooltips: event.target.checked
+                  }))
                 }
               />
-              <span>Show statistic tooltips</span>
+              <span>Show tooltips</span>
             </label>
 
             <button
@@ -1281,9 +2124,10 @@ function App() {
                 setSettings(DEFAULT_SETTINGS);
                 setPeriod(1);
                 setClock('15:00');
+                setAnalysisScope('match');
               }}
             >
-              Reset Settings
+              Reset settings
             </button>
           </article>
         </div>
@@ -1295,10 +2139,20 @@ function App() {
     if (activeModule === 'Matches') return renderMatches();
     if (activeModule === 'Roster') return renderRoster();
     if (activeModule === 'Event Tracker') return renderEventTracker();
+    if (activeModule === 'Stat Sheet') return renderStatSheet();
     if (activeModule === 'Analytics') return renderAnalytics();
+    if (activeModule === 'Help') return renderHelp();
+    if (activeModule === 'Privacy') return renderPrivacy();
+    if (activeModule === 'Changelog') return renderChangelog();
     if (activeModule === 'Settings') return renderSettings();
     return renderHome();
   }
+
+  useEffect(() => {
+    if (settings.defaultAnalysisScope !== analysisScope && !session?.user?.id) {
+      setAnalysisScope(settings.defaultAnalysisScope);
+    }
+  }, [settings.defaultAnalysisScope, analysisScope, session?.user?.id]);
 
   if (authLoading) {
     return (
@@ -1314,7 +2168,12 @@ function App() {
         <form className="auth-card" onSubmit={sendMagicLink}>
           <img className="auth-logo" src="/logos/fieldhockey-logo-light.png" alt="Field Hockey Hub" />
           <h1>Field Hockey Hub</h1>
-          <p>Sign in with a magic link to access your seasons, teams, and events.</p>
+          <p>Sign in with a magic link to access your seasons, teams, and stats.</p>
+          <div className="auth-note">
+            <strong>How the email looks</strong>
+            <span>Sender: <code>no-reply@mail.app.supabase.io</code></span>
+            <span>Subject usually includes: <code>Confirm Your Signup</code></span>
+          </div>
           <input
             type="email"
             placeholder="you@example.com"
@@ -1322,7 +2181,9 @@ function App() {
             onChange={(event) => setEmail(event.target.value)}
             required
           />
-          <button type="submit" disabled={authBusy}>{authBusy ? 'Sending...' : 'Send Magic Link'}</button>
+          <button type="submit" disabled={authBusy}>
+            {authBusy ? 'Sending...' : 'Send Magic Link'}
+          </button>
           {status ? <p className="status">{status}</p> : null}
         </form>
       </div>
@@ -1339,6 +2200,7 @@ function App() {
             <h1>Field Hockey Hub</h1>
           </div>
         </div>
+
         <nav>
           {visibleModules.map((module) => (
             <button
@@ -1350,20 +2212,14 @@ function App() {
             </button>
           ))}
         </nav>
-        <button
-          className="feature-link"
-          onClick={() =>
-            setFeatureDialog({
-              subject: 'Field Hockey Feature Request',
-              message: '',
-              submitting: false,
-              error: ''
-            })
-          }
-        >
+
+        <button className="feature-link big" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>
           Request Feature
         </button>
-        <button className="signout" onClick={signOut}>Sign out</button>
+
+        <button className="signout" onClick={signOut}>
+          Sign out
+        </button>
       </aside>
 
       <main className="content">
@@ -1378,7 +2234,9 @@ function App() {
               <select value={selectedSeasonId} onChange={(event) => setSelectedSeasonId(event.target.value)}>
                 <option value="">Select season</option>
                 {seasons.map((season) => (
-                  <option key={season.id} value={season.id}>{season.name}</option>
+                  <option key={season.id} value={season.id}>
+                    {season.name}
+                  </option>
                 ))}
               </select>
               <input
@@ -1389,11 +2247,26 @@ function App() {
               <button type="submit">+ Season</button>
             </form>
 
+            <div className="inline-meta-list">
+              {selectedSeason ? (
+                <>
+                  <button type="button" className="secondary" onClick={() => renameSeason(selectedSeason)}>
+                    Rename season
+                  </button>
+                  <button type="button" className="danger" onClick={() => deleteSeason(selectedSeason.id)}>
+                    Delete season
+                  </button>
+                </>
+              ) : null}
+            </div>
+
             <form className="tiny-form" onSubmit={createTeam}>
               <select value={selectedTeamId} onChange={(event) => setSelectedTeamId(event.target.value)}>
                 <option value="">Select team</option>
                 {teams.map((team) => (
-                  <option key={team.id} value={team.id}>{team.name}</option>
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
                 ))}
               </select>
               <input
@@ -1403,14 +2276,72 @@ function App() {
               />
               <button type="submit">+ Team</button>
             </form>
+
+            <div className="inline-meta-list">
+              {selectedTeam ? (
+                <>
+                  <button type="button" className="secondary" onClick={() => renameTeam(selectedTeam)}>
+                    Rename team
+                  </button>
+                  <button type="button" className="danger" onClick={() => deleteTeam(selectedTeam.id)}>
+                    Delete team
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
         </header>
 
         {loadingData ? <p className="status">Loading data...</p> : null}
         {status && !loadingData ? <p className="status">{status}</p> : null}
+
         {renderModule()}
+
+        <footer className="footer">
+          <span>© 2026 Field Hockey Hub</span>
+          <div className="footer-links">
+            <button type="button" className="link-btn" onClick={() => setFeatureDialog({ ...EMPTY_REQUEST })}>
+              Request Feature
+            </button>
+            <button type="button" className="link-btn" onClick={() => setActiveModule('Privacy')}>
+              Privacy
+            </button>
+          </div>
+        </footer>
       </main>
 
+      {featureDialog ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal">
+            <h3>Request Feature</h3>
+            <p className="muted">Or email directly: <a href="mailto:info@paulzuiderduin.com">info@paulzuiderduin.com</a></p>
+            <label className="stacked-label">
+              Subject
+              <input
+                value={featureDialog.subject}
+                onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, subject: event.target.value } : prev))}
+              />
+            </label>
+            <label className="stacked-label">
+              Message
+              <textarea
+                rows={5}
+                value={featureDialog.message}
+                onChange={(event) => setFeatureDialog((prev) => (prev ? { ...prev, message: event.target.value } : prev))}
+              />
+            </label>
+            {featureDialog.error ? <p className="status danger-status">{featureDialog.error}</p> : null}
+            <div className="modal-actions">
+              <button type="button" className="secondary" onClick={() => setFeatureDialog(null)}>
+                Cancel
+              </button>
+              <button type="button" onClick={submitFeatureRequest} disabled={featureDialog.submitting}>
+                {featureDialog.submitting ? 'Submitting...' : 'Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
